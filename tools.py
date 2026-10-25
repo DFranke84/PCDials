@@ -3,6 +3,7 @@
   python tools.py check           list any dial value HWiNFO isn't sharing (and suggest fixes)
   python tools.py export-hwinfo   save your HWiNFO settings into the hwinfo-profile folder
   python tools.py import-hwinfo   put the saved HWiNFO settings back (close HWiNFO first)
+  python tools.py default-hwinfo  default settings for a NEW HWiNFO install on any PC (close HWiNFO first)
 """
 import difflib
 import json
@@ -20,6 +21,7 @@ REG_FILE = PROFILE / "hwinfo-settings.reg"
 INI_FILE = PROFILE / "HWiNFO64.INI"
 HWINFO_INI = Path(r"C:\Program Files\HWiNFO64\HWiNFO64.INI")
 HWINFO_REG = r"HKCU\Software\HWiNFO64"
+SENSORS_KEY = r"Software\HWiNFO64\Sensors"
 
 
 # ---------------------------------------------------------------- check
@@ -109,6 +111,90 @@ def hwinfo_running():
     return "hwinfo64.exe" in out.lower()  # Windows may list it as HWiNFO64.EXE
 
 
+# Default HWiNFO settings for a NEW install on any PC. These sensors use the same
+# HWiNFO IDs on every PC (memory, FPS, CPU totals, Intel CPU, NVIDIA GPU); anything
+# else (board temps, fans, drives, AMD parts) is ticked by hand: Setup lists them.
+DEFAULT_SENSORS = {
+    "F0000301_0": ["Other3", "Other4"],                    # memory used / available
+    "F0000300_0": ["Usage33", "Usage67", "Group3"],        # total CPU usage / utility, avg clock
+    "F0000400_0": ["Temp510", "Temp511"],                  # Intel: CPU package / core max
+    "F0002A00_0": ["Temp4", "Power0", "Power1"],           # Intel: package temp, package/cores power
+    "E0002000_0": ["Temp0", "Temp5", "Fan0", "Other0", "Power0", "Usage0", "Usage1", "Usage8",
+                   "Other251", "Other252", "Other253"],    # NVIDIA GPU
+    "F0000FF0_0": ["Other0", "Other4", "Other5", "Other20"],  # FPS (PresentMon)
+}
+DEFAULT_INI = {  # HWiNFO64.INI [Settings]
+    "SensorsOnly": "1", "ShowWelcomeAndProgress": "0", "OpenSystemSummary": "0",
+    "MinimalizeSensors": "1", "MinimalizeSensorsClose": "1", "MinimalizeMainWnd": "1",
+    "Autorun": "1", "SensorInterval": "1000", "ShowFans0RPM": "1",
+}
+
+
+def write_hwinfo_ini(text):
+    """Write HWiNFO64.INI in Program Files, asking Windows for permission if needed."""
+    try:
+        HWINFO_INI.write_text(text, encoding="ascii")
+        return True
+    except PermissionError:
+        with tempfile.NamedTemporaryFile("w", suffix=".ini", delete=False, encoding="ascii") as t:
+            t.write(text)
+        r = subprocess.run(["powershell", "-NoProfile", "-Command",
+                            f"Start-Process -Wait -Verb RunAs -WindowStyle Hidden powershell "
+                            f"-ArgumentList '-NoProfile','-Command','Copy-Item -Force \"{t.name}\" \"{HWINFO_INI}\"'"],
+                           capture_output=True)
+        Path(t.name).unlink(missing_ok=True)
+        return r.returncode == 0
+
+
+def apply_default_hwinfo():
+    if hwinfo_running():
+        print("Close HWiNFO64 first (it saves its own settings on exit and would undo this).")
+        return 1
+    import winreg
+    base = SENSORS_KEY
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, base) as k:
+        winreg.SetValueEx(k, "EnableVSB", 0, winreg.REG_DWORD, 1)  # "Enable reporting to Gadget"
+
+    # keep anything already shared; add the defaults after it
+    existing, used_idx = set(), []
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, base) as k:
+        for i in range(winreg.QueryInfoKey(k)[0]):
+            s = winreg.EnumKey(k, i)
+            with winreg.OpenKey(k, s) as sk:
+                for j in range(winreg.QueryInfoKey(sk)[0]):
+                    r = winreg.EnumKey(sk, j)
+                    with winreg.OpenKey(sk, r) as rk:
+                        try:
+                            if winreg.QueryValueEx(rk, "InVSB")[0] == 1:
+                                existing.add((s, r))
+                                used_idx.append(winreg.QueryValueEx(rk, "VSBidx")[0])
+                        except OSError:
+                            pass
+    idx, added = max(used_idx, default=-1) + 1, 0
+    for sensor, entries in DEFAULT_SENSORS.items():
+        for entry in entries:
+            if (sensor, entry) in existing:
+                continue
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"{base}\{sensor}\{entry}") as rk:
+                winreg.SetValueEx(rk, "InVSB", 0, winreg.REG_DWORD, 1)
+                winreg.SetValueEx(rk, "VSBidx", 0, winreg.REG_DWORD, idx)
+            idx += 1
+            added += 1
+    print(f"Turned on Gadget reporting and added {added} standard sensors.")
+
+    # general settings: sensors-only, start minimized, start with Windows
+    lines = HWINFO_INI.read_text(encoding="ascii", errors="ignore").splitlines() if HWINFO_INI.exists() else []
+    settings = dict(l.split("=", 1) for l in lines if "=" in l)
+    settings.update(DEFAULT_INI)
+    text = "[Settings]\n" + "".join(f"{k}={v}\n" for k, v in settings.items())
+    if write_hwinfo_ini(text):
+        print("Set HWiNFO to open as Sensors only, minimized, and start with Windows.")
+    else:
+        print("Couldn't update HWiNFO64.INI (permission refused); the sensor settings are applied.")
+    print("Start HWiNFO64 again. Then tick the remaining sensors Setup lists (board, fans, drives).")
+    return 0
+
+
 def import_hwinfo():
     if hwinfo_running():
         print("Close HWiNFO64 first (it saves its own settings on exit and would undo the import).")
@@ -131,7 +217,8 @@ def import_hwinfo():
 
 
 if __name__ == "__main__":
-    commands = {"check": check, "export-hwinfo": export_hwinfo, "import-hwinfo": import_hwinfo}
+    commands = {"check": check, "export-hwinfo": export_hwinfo, "import-hwinfo": import_hwinfo,
+                "default-hwinfo": apply_default_hwinfo}
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
         print(__doc__)
         sys.exit(1)

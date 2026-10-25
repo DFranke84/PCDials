@@ -12,6 +12,52 @@ import re
 from helper import read_hwinfo
 
 GB = 0.0009765625  # MB -> GB
+CPU, GPU = r"^CPU \[", r"^GPU \["
+
+# The readings the dials look for: key -> (dial, what it is, HWiNFO label patterns in
+# order of preference, find options). Used to build dials and the "what to tick" checklist.
+NAMES = {
+    "cpu_load":  ("CPU", "CPU usage (total)", [r"Total CPU Utility", r"Total CPU Usage"], {}),
+    "cpu_temp":  ("CPU", "CPU temperature", [r"CPU Package", r"CPU \(Tctl/Tdie\)", r"CPU Die \(average\)",
+                                             r"CPU Tctl"], {"sensor": CPU}),
+    "cpu_hot":   ("CPU", "Hottest core", [r"Core Max", r"CPU CCD1 \(Tdie\)", r"CPU CCD\d \(Tdie\)"],
+                  {"sensor": CPU}),
+    "cpu_clock": ("CPU", "CPU clock (average)", [r"Core Effective Clocks", r"Average Effective Clock"],
+                  {"sensor": CPU}),
+    "cpu_volt":  ("CPU", "CPU voltage", [r"Vcore", r"CPU Core Voltage.*", r"Core VIDs \(avg\)"], {}),
+    "cpu_power": ("CPU", "CPU power", [r"CPU Package Power", r"CPU PPT"], {"sensor": CPU}),
+    "cpu_cores": ("CPU", "CPU cores power", [r"IA Cores Power", r"CPU Core Power.*", r"Core Powers \(avg\)"],
+                  {"sensor": CPU}),
+    "gpu_load":  ("GPU", "GPU load", [r"GPU Core Load", r"GPU Utilization", r"GPU D3D Usage", r"GPU Load"],
+                  {"sensor": GPU}),
+    "gpu_temp":  ("GPU", "GPU temperature", [r"GPU Temperature", r"GPU Edge Temperature"], {"sensor": GPU}),
+    "gpu_hot":   ("GPU", "GPU hot spot", [r"GPU Hot Spot Temperature", r"GPU Junction Temperature",
+                                          r"GPU Hotspot.*"], {"sensor": GPU}),
+    "vram_used": ("GPU", "Video memory used (MB)", [r"GPU Memory Allocated", r"GPU D3D Memory Dedicated",
+                  r"GPU Memory Used", r"GPU Memory Usage"], {"sensor": GPU, "unit": "MB"}),
+    "vram_free": ("GPU", "Video memory available", [r"GPU Memory Available", r"GPU Memory Free"],
+                  {"sensor": GPU}),
+    "gpu_mem":   ("GPU", "GPU memory load (%)", [r"GPU Memory Controller Load", r"GPU Memory Usage"],
+                  {"sensor": GPU, "unit": "%"}),
+    "gpu_power": ("GPU", "GPU power", [r"GPU Power", r"Total Board Power", r"GPU ASIC Power",
+                                       r"GPU Package Power"], {"sensor": GPU}),
+    "gpu_fan":   ("GPU", "GPU fan (RPM)", [r"GPU Fan1?", r"GPU Fan"], {"sensor": GPU, "unit": "RPM"}),
+    "ram_used":  ("Board", "Memory used", [r"Physical Memory Used"], {}),
+    "ram_free":  ("Board", "Memory available", [r"Physical Memory Available"], {}),
+    "board":     ("Board", "Motherboard temperature", [r"Motherboard", r"System\d?", r"MB Temp.*"],
+                  {"unit": "°C"}),
+    "vrm":       ("Board", "VRM temperature", [r"VRM.*", r"MOS.*", r"VR MOS"], {"unit": "°C"}),
+    "pch":       ("Board", "Chipset (PCH) temperature", [r"PCH Temperature", r"Chipset.*"], {"unit": "°C"}),
+    "fans":      ("Board", "CPU fan, pump and case fans (RPM)", [r"CPU( Fan)?", r".*Pump.*", r"AIO.*",
+                  r"Chassis.*", r"System Fan.*"], {"unit": "RPM"}),
+    "ssd":       ("Board", "Windows drive (C:) temperature", [r"Drive Temperature.*"], {"sensor": r"\[C:\]"}),
+    "fps":       ("FPS", "Framerate (avg)", [r"Framerate Presented \(avg\)", r"Framerate \(avg\)", r"Framerate"], {}),
+    "frame":     ("FPS", "Frame time (avg)", [r"Frame Time Presented \(avg\)", r"Frame Time \(avg\)",
+                                              r"Frame Time"], {}),
+    "low1":      ("FPS", "Framerate 1% low", [r"Framerate Presented \(1% low\)", r"Framerate \(1% low\)"], {}),
+    "low01":     ("FPS", "Framerate 0.1% low", [r"Framerate Presented \(0\.1% low\)",
+                                                r"Framerate \(0\.1% low\)"], {}),
+}
 
 
 def unit_of(r):
@@ -35,6 +81,11 @@ class Finder:
             if hits:
                 return pick(hits) if pick else hits[0]
         return None
+
+    def get(self, key, **options):
+        """Find one of the NAMES readings."""
+        _, _, labels, opts = NAMES[key]
+        return self.find(labels, **{**opts, **options})
 
     def spec(self, r, **extra):
         """A dials.json value for reading r. Adds "source" only when the label is
@@ -69,18 +120,17 @@ def short_name(sensor, strip):
 # ---------------------------------------------------------------- dials
 
 def cpu_dial(f):
-    load = f.find([r"Total CPU Utility", r"Total CPU Usage"])
+    load = f.get("cpu_load")
     if not load:
         return None
     amd = "AMD" in load["sensor"]
     warn, danger = (88, 95) if amd else (85, 95)
-    temp = f.find([r"CPU Package", r"CPU \(Tctl/Tdie\)", r"CPU Die \(average\)", r"CPU Tctl"],
-                  sensor=r"^CPU \[")
-    hot = f.find([r"Core Max", r"CPU CCD1 \(Tdie\)", r"CPU CCD\d \(Tdie\)"], sensor=r"^CPU \[")
-    clock = f.find([r"Core Effective Clocks", r"Average Effective Clock"], sensor=r"^CPU \[")
-    volt = f.find([r"Vcore", r"CPU Core Voltage.*", r"Core VIDs \(avg\)"])
-    power = f.find([r"CPU Package Power", r"CPU PPT"], sensor=r"^CPU \[")
-    cores = f.find([r"IA Cores Power", r"CPU Core Power.*", r"Core Powers \(avg\)"], sensor=r"^CPU \[")
+    temp = f.get("cpu_temp")
+    hot = f.get("cpu_hot")
+    clock = f.get("cpu_clock")
+    volt = f.get("cpu_volt")
+    power = f.get("cpu_power")
+    cores = f.get("cpu_cores")
 
     d = {
         "title": short_name(load["sensor"], ["Intel", "AMD"]),
@@ -99,19 +149,17 @@ def cpu_dial(f):
 
 
 def gpu_dial(f):
-    gpu = r"^GPU \["
-    load = f.find([r"GPU Core Load", r"GPU Utilization", r"GPU D3D Usage", r"GPU Load"], sensor=gpu)
+    load = f.get("gpu_load")
     if not load:
         return None
     vendor_amd = "AMD" in load["sensor"] or "Radeon" in load["sensor"]
-    temp = f.find([r"GPU Temperature", r"GPU Edge Temperature"], sensor=gpu)
-    hot = f.find([r"GPU Hot Spot Temperature", r"GPU Junction Temperature", r"GPU Hotspot.*"], sensor=gpu)
-    used = f.find([r"GPU Memory Allocated", r"GPU D3D Memory Dedicated", r"GPU Memory Used",
-                   r"GPU Memory Usage"], sensor=gpu, unit="MB")  # AMD calls it "Usage" (in MB)
-    free = f.find([r"GPU Memory Available", r"GPU Memory Free"], sensor=gpu)
-    memctl = f.find([r"GPU Memory Controller Load", r"GPU Memory Usage"], sensor=gpu, unit="%")
-    power = f.find([r"GPU Power", r"Total Board Power", r"GPU ASIC Power", r"GPU Package Power"], sensor=gpu)
-    fan = f.find([r"GPU Fan1?", r"GPU Fan"], sensor=gpu, unit="RPM")
+    temp = f.get("gpu_temp")
+    hot = f.get("gpu_hot")
+    used = f.get("vram_used")
+    free = f.get("vram_free")
+    memctl = f.get("gpu_mem")
+    power = f.get("gpu_power")
+    fan = f.get("gpu_fan")
 
     big = None
     if used:
@@ -138,14 +186,14 @@ def gpu_dial(f):
 
 
 def board_dial(f):
-    board = f.find([r"Motherboard", r"System\d?", r"MB Temp.*"], unit="°C")
-    used = f.find([r"Physical Memory Used"])
+    board = f.get("board")
+    used = f.get("ram_used")
     if not board and not used:
         return None
     chip = board["sensor"] if board else ""
-    vrm = f.find([r"VRM.*", r"MOS.*", r"VR MOS"], unit="°C")
-    pch = f.find([r"PCH Temperature", r"Chipset.*"], unit="°C")
-    free = f.find([r"Physical Memory Available"])
+    vrm = f.get("vrm")
+    pch = f.get("pch")
+    free = f.get("ram_free")
 
     # fans and pumps on the board's sensor chip that are spinning now
     fans = [r for r in f.readings
@@ -163,7 +211,7 @@ def board_dial(f):
         fan_specs.append(f.spec(r, **extra))
 
     # hottest drive sensor on the Windows (C:) drive
-    ssd = f.find([r"Drive Temperature.*"], sensor=r"\[C:\]", pick=lambda hs: max(hs, key=lambda r: r["value"]))
+    ssd = f.get("ssd", pick=lambda hs: max(hs, key=lambda r: r["value"]))
 
     big = None
     if used:
@@ -196,12 +244,12 @@ IGNORE_APPS = ["dwm.exe", "explorer.exe", "chrome.exe", "msedge.exe", "msedgeweb
 
 
 def fps_dial(f):
-    fps = f.find([r"Framerate Presented \(avg\)", r"Framerate \(avg\)", r"Framerate"])
+    fps = f.get("fps")
     if not fps:
         return None
-    frame = f.find([r"Frame Time Presented \(avg\)", r"Frame Time \(avg\)", r"Frame Time"])
-    low1 = f.find([r"Framerate Presented \(1% low\)", r"Framerate \(1% low\)"])
-    low01 = f.find([r"Framerate Presented \(0\.1% low\)", r"Framerate \(0\.1% low\)"])
+    frame = f.get("frame")
+    low1 = f.get("low1")
+    low01 = f.get("low01")
     return {
         "title": "FPS",
         "size": 300,
@@ -215,6 +263,20 @@ def fps_dial(f):
             row(f.spec(low01, name="0.1% low", unit=" FPS", decimals=0)),
         ] if r],
     }
+
+
+def checklist(readings):
+    """For each reading the dials look for: is HWiNFO sharing it? If not, which names
+    to look for in HWiNFO's Gadget tab."""
+    f = Finder(readings)
+    plain = lambda p: re.sub(r"\\(.)", r"\1", p).replace(".*", "…").replace(r"\d", "#").replace("?", "")
+    items = []
+    for key, (dial, what, labels, _) in NAMES.items():
+        r = f.get(key)
+        items.append({"dial": dial, "what": what, "found": r is not None,
+                      "now": f'{r["label"]} = {r["text"]}' if r else "",
+                      "lookFor": [plain(p) for p in labels[:3]]})
+    return items
 
 
 def generate(readings):

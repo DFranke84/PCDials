@@ -24,6 +24,7 @@ ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
 PORT = 8766
 PYTHONW = Path(sys.executable).with_name("pythonw.exe")
+HWINFO_EXE = tools.HWINFO_INI.with_name("HWiNFO64.exe")
 STARTUP_LINK = Path.home() / r"AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\PCDials.lnk"
 
 draft = None  # unsaved dials from the editor, used by the live preview
@@ -40,6 +41,16 @@ def captured(fn):
     with contextlib.redirect_stdout(out):
         code = fn()
     return {"ok": code == 0, "message": out.getvalue().strip()}
+
+
+def gadget_enabled():
+    """HWiNFO's "Enable reporting to Gadget" setting."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\HWiNFO64\Sensors") as k:
+            return winreg.QueryValueEx(k, "EnableVSB")[0] == 1
+    except OSError:
+        return False
 
 
 def dials_running():
@@ -63,6 +74,8 @@ def status():
         "python": sys.version.split()[0],
         "pywebview": pywebview,
         "startup": STARTUP_LINK.exists(),
+        "hwinfoInstalled": HWINFO_EXE.exists(),
+        "gadget": gadget_enabled(),
         "hwinfo": hwinfo,
         "sharing": len(readings),
         "dials": dials_running(),
@@ -125,6 +138,21 @@ def startup_off():
     return {"ok": r.returncode == 0, "message": r.stderr.strip() or "Dials won't start at login any more."}
 
 
+def install_hwinfo():
+    # in its own window so you can see the progress; Windows asks for permission
+    subprocess.Popen(["cmd", "/c", "start", "Installing HWiNFO64", "cmd", "/c",
+                      "winget install --id REALiX.HWiNFO --exact --accept-package-agreements "
+                      "--accept-source-agreements & echo. & pause"])
+    return {"ok": True, "message": "Installing HWiNFO64 in a separate window. "
+                                   "When it's done, use Apply default HWiNFO settings, then Start HWiNFO."}
+
+
+def start_hwinfo():
+    import os
+    os.startfile(HWINFO_EXE)  # HWiNFO asks Windows for administrator rights itself
+    return {"ok": True, "message": "Starting HWiNFO64 (allow it when Windows asks)."}
+
+
 def install_deps():
     r = subprocess.run([sys.executable, "-m", "pip", "install", "pywebview"],
                        capture_output=True, text=True)
@@ -167,6 +195,8 @@ ACTIONS = {
     "start_dials": start_dials, "stop_dials": stop_dials,
     "startup_on": startup_on, "startup_off": startup_off,
     "install_deps": install_deps,
+    "install_hwinfo": install_hwinfo, "start_hwinfo": start_hwinfo,
+    "default_hwinfo": lambda: captured(tools.apply_default_hwinfo),
     "export_hwinfo": lambda: captured(tools.export_hwinfo),
     "import_hwinfo": lambda: captured(tools.import_hwinfo),
 }
@@ -188,6 +218,8 @@ class SetupHandler(Handler):
             self.send_json(status())
         elif path == "/api/readings":
             self.send_json(read_hwinfo())
+        elif path == "/api/checklist":
+            self.send_json(autodials.checklist(read_hwinfo()))
         elif path == "/api/generate":
             self.send_json(autodials.generate(read_hwinfo()))
         elif path == "/dials.json" and draft is not None and "saved" not in self.path:
