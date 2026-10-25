@@ -10,6 +10,7 @@ http://127.0.0.1:8765 and opens one small see-through window per dial.
 Run "python helper.py --server" to serve the data only, without opening windows.
 """
 import ctypes
+import ctypes.wintypes
 import json
 import subprocess
 import sys
@@ -24,6 +25,7 @@ HERE = Path(__file__).parent
 DIALS_FILE = HERE / "dials.json"
 POSITIONS_FILE = HERE / "positions.json"  # written by the app: where each dial sits
 HWINFO_KEY = r"Software\HWiNFO64\VSB"
+DIALS_APP = None  # the running dial windows (set in run_windows)
 
 
 # ---------------------------------------------------------------- HWiNFO data
@@ -75,6 +77,15 @@ class Handler(SimpleHTTPRequestHandler):
         else:
             super().do_GET()
 
+    def do_POST(self):
+        # POST /quit closes the dials (used by the setup app's Stop button)
+        if self.path == "/quit" and DIALS_APP:
+            self.send_response(204)
+            self.end_headers()
+            DIALS_APP.quit()
+        else:
+            self.send_error(404)
+
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
@@ -95,6 +106,9 @@ WS_EX_TOOLWINDOW = 0x80      # no taskbar button, not in Alt+Tab
 WS_EX_NOACTIVATE = 0x8000000  # clicking it never steals focus (e.g. from a game)
 HWND_BOTTOM = 1
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x1, 0x2, 0x10
+MONITOR_DEFAULTTONULL = 0
+SW_HIDE, SW_SHOWNOACTIVATE = 0, 4
+RECT, POINT = ctypes.wintypes.RECT, ctypes.wintypes.POINT
 
 
 def load_json(path, default):
@@ -110,6 +124,7 @@ class Api:
     def __init__(self, dials):
         self._dials = dials
         self._windows = []
+        self._hidden = set()  # dial windows hidden because their monitor is off
         self._positions = load_json(POSITIONS_FILE, {})
         self._dirty = False
         self.restart_requested = False
@@ -130,8 +145,16 @@ class Api:
             time.sleep(1)
             self._save()
 
-    def _moved(self, i, x, y):
-        self._pos(i).update(x=x, y=y)
+    def _moved(self, i):
+        # Save real screen pixels (not DPI-scaled units) so dials on monitors with
+        # different scaling come back in exactly the same place.
+        # Ignore moves while the dial's monitor is off: that's Windows pushing it
+        # onto another screen, not you dragging it.
+        if not monitor_connected(self._pos(i)):
+            return
+        r = RECT()
+        user32.GetWindowRect(self._windows[i].native.Handle.ToInt64(), ctypes.byref(r))
+        self._pos(i).update(x=r.left, y=r.top)
         self._save_soon()
 
     def is_locked(self, i):
@@ -168,6 +191,14 @@ class Api:
             w.destroy()
 
 
+def monitor_connected(pos):
+    """True if the saved spot (top-left, in screen pixels) is on a connected monitor.
+    Dials with no saved spot yet count as connected."""
+    if "x" not in pos:
+        return True
+    return bool(user32.MonitorFromPoint(POINT(pos["x"] + 20, pos["y"] + 20), MONITOR_DEFAULTTONULL))
+
+
 def to_desktop_layer(window, size=None):
     """Hide from taskbar/Alt+Tab, never take focus, and sit behind normal windows.
     With size: also set the exact window size (pywebview shrinks frameless windows)."""
@@ -183,38 +214,85 @@ def to_desktop_layer(window, size=None):
     user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, px, px, flags)
 
 
-def keep_at_bottom(windows):
+def place(window, pos, hidden):
+    """Show the dial at its saved spot, or hide it while that monitor is off.
+    hidden: set of windows we hid. Only those are shown again; pywebview shows the
+    others itself (showing them early breaks their see-through background)."""
+    hwnd = window.native.Handle.ToInt64()
+    if not monitor_connected(pos):
+        user32.ShowWindow(hwnd, SW_HIDE)
+        hidden.add(hwnd)
+        return
+    if "x" in pos:
+        r = RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(r))
+        if (r.left, r.top) != (pos["x"], pos["y"]):
+            user32.SetWindowPos(hwnd, HWND_BOTTOM, pos["x"], pos["y"], 0, 0,
+                                SWP_NOSIZE | SWP_NOACTIVATE)
+    if hwnd in hidden:
+        hidden.discard(hwnd)
+        user32.ShowWindow(hwnd, SW_SHOWNOACTIVATE)
+
+
+def watch_monitors(api):
+    """Every 2s: keep dials behind other windows, and hide/show them as monitors
+    are turned off and on."""
     while True:
         time.sleep(2)
-        for w in windows:
+        for i, w in enumerate(list(api._windows)):
             try:
                 to_desktop_layer(w)
+                place(w, api._pos(i), api._hidden)
             except Exception:
                 pass  # window closing
+
+
+def watch_dials_file(api, count):
+    """Pick up changes to dials.json (from the setup app or by hand) automatically."""
+    last = DIALS_FILE.stat().st_mtime
+    while True:
+        time.sleep(2)
+        try:
+            now = DIALS_FILE.stat().st_mtime
+        except OSError:
+            continue
+        if now != last:
+            last = now
+            if len(load_json(DIALS_FILE, [])) != count:
+                api.restart()  # dials added or removed: reopen the windows
+                return
+            api.reload_all()
 
 
 def run_windows():
     import webview
 
     dials = load_json(DIALS_FILE, [])
-    api = Api(dials)
+    global DIALS_APP
+    api = DIALS_APP = Api(dials)
     for i, dial in enumerate(dials):
         size = api._size(i)
         pos = api._pos(i)
+        # Open in a default spot on the main monitor, then move to the saved
+        # screen position once shown (or hide it if that monitor is off).
         w = webview.create_window(
             f"PCDials - {dial['title']}",
             api._url(i),
-            js_api=api, width=size, height=size,
-            x=pos.get("x", 40 + i * 340), y=pos.get("y", 40),
+            js_api=api, width=size, height=size, x=40 + i * 340, y=40,
             frameless=True, easy_drag=False, transparent=True, shadow=False,
             resizable=False, focus=False,
         )
-        w.events.moved += lambda x, y, i=i: api._moved(i, x, y)
-        w.events.shown += lambda w=w, size=size: to_desktop_layer(w, size)
+        def on_shown(w=w, i=i, size=size):
+            to_desktop_layer(w, size)
+            place(w, api._pos(i), api._hidden)
+            w.events.moved += lambda x, y: api._moved(i)  # only track moves after placing
+
+        w.events.shown += on_shown
         api._windows.append(w)
 
     threading.Thread(target=api._save_loop, daemon=True).start()
-    threading.Thread(target=keep_at_bottom, args=(api._windows,), daemon=True).start()
+    threading.Thread(target=watch_dials_file, args=(api, len(dials)), daemon=True).start()
+    threading.Thread(target=watch_monitors, args=(api,), daemon=True).start()
     webview.start()
     api._save()
     return api.restart_requested
