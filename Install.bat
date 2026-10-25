@@ -34,7 +34,7 @@ if exist "%HWINFO%" (
 ) else if defined CHECK (
     echo  [--]  HWiNFO64: not installed
 ) else (
-    echo  [..]  HWiNFO64 not found. Installing ^(Windows will ask for permission^)...
+    echo  [..]  HWiNFO64 not found. Installing ^(Windows may ask for permission^)...
     winget install --id REALiX.HWiNFO --exact --silent --accept-package-agreements --accept-source-agreements
     if exist "%HWINFO%" (echo  [OK]  HWiNFO64 installed) else (
         echo  [!!]  HWiNFO64 install didn't finish. Get it from https://www.hwinfo.com and run this again.

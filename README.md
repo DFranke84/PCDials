@@ -30,7 +30,7 @@ Opens the **PCDials Setup** window:
 2. **Double-click `Install.bat`.** It installs whatever is missing, using Windows'
    built-in installer (winget):
    - **Python 3.14** (just for you, no admin needed),
-   - **HWiNFO64** (Windows asks for permission),
+   - **HWiNFO64** (Windows may ask for permission),
    - **pywebview** (the part that draws the dial windows),
    then opens **PCDials Setup**. (`Install.bat check` only reports, installs nothing.)
 3. **Set up HWiNFO automatically** (Setup tab):
