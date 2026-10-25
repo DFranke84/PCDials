@@ -240,6 +240,8 @@ python helper.py --server             serve the data only; preview at http://127
 | `tools.py` | HWiNFO setup, backups and checks |
 | `positions.json`, `pcdials.log`, `hwinfo-backups\` | Created on your PC (where dials sit, log, backups); not in the repo |
 
+**License:** [MIT](LICENSE). HWiNFO64 and pywebview are separate projects with their own licenses.
+
 **How it works:** HWiNFO publishes the sensors you tick to the Windows registry ("Gadget
 reporting"). `helper.py` reads them once a second and serves them on `127.0.0.1:8765` (local
 only); each dial is a small borderless, see-through [pywebview](https://pywebview.flowrl.com/)
