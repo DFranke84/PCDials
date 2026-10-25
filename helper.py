@@ -298,17 +298,43 @@ def run_windows():
     return api.restart_requested
 
 
+def log_to_file():
+    """With no console (pythonw), write messages and errors to pcdials.log so a dial
+    that stops or misbehaves leaves a reason behind. Kept under ~1 MB."""
+    log = HERE / "pcdials.log"
+    if log.exists() and log.stat().st_size > 1_000_000:
+        log.replace(HERE / "pcdials.old.log")
+    sys.stdout = sys.stderr = open(log, "a", encoding="utf-8", buffering=1)
+    threading.excepthook = lambda a: print(time.strftime("%Y-%m-%d %H:%M:%S"), "error in",
+                                           a.thread.name, "".join(
+                                               __import__("traceback").format_exception(a.exc_value)))
+
+
+def note(*msg):
+    print(time.strftime("%Y-%m-%d %H:%M:%S"), *msg)
+
+
 if __name__ == "__main__":
+    if sys.stdout is None:
+        log_to_file()
     try:
         server = Server(("127.0.0.1", PORT), Handler)
     except OSError:
-        sys.exit("PCDials is already running.")
+        note("Not started: PCDials is already running.")
+        sys.exit(0)
 
     if "--server" in sys.argv:
         server.serve_forever()
     else:
+        note("Dials started.")
         threading.Thread(target=server.serve_forever, daemon=True).start()
-        restart = run_windows()
+        try:
+            restart = run_windows()
+        except Exception:
+            import traceback
+            note("Dials stopped by an error:\n" + traceback.format_exc())
+            raise
+        note("Dials restarting." if restart else "Dials closed.")
         server.shutdown()
         server.server_close()
         if restart:

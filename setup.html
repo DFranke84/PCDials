@@ -38,6 +38,12 @@
   h2 { font-size: 15px; margin: 24px 0 10px; font-weight: 600; }
   .missing { max-width: 820px; color: var(--dim); }
   .missing li { margin: 4px 0; }
+  .checklist { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; max-width: 1100px; }
+  .checklist .group { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .checklist h4 { margin: 0 0 6px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+  .checklist .item { display: grid; grid-template-columns: 18px 1fr; gap: 0 8px; align-items: center; margin: 5px 0; }
+  .checklist .item .dot { width: 10px; height: 10px; }
+  .checklist .item small { grid-column: 2; color: var(--dim); font-size: 12px; }
 
   /* Dials tab */
   .editor { display: grid; grid-template-columns: 190px 1fr 300px; gap: 18px; align-items: start; }
@@ -88,6 +94,11 @@
     <div class="status" id="status">Checking…</div>
     <h2>Dial values not found in HWiNFO</h2>
     <div class="missing" id="missing"></div>
+    <h2>Sensor checklist</h2>
+    <p class="missing">What the dials can show, and whether HWiNFO is sharing it. To add a missing one:
+      HWiNFO → Sensors → Settings (gear) → <b>HWiNFO Gadget</b> tab → find it in the list →
+      tick <b>Report value in Gadget</b>. Then use <b>Create dials for this PC</b> on the Dials tab.</p>
+    <div class="checklist" id="checklist"></div>
   </section>
 
   <section id="tab-dials" hidden>
@@ -163,16 +174,22 @@ async function refreshStatus() {
     line(s.pywebview ? "ok" : "", `Python ${s.python} + pywebview`,
       s.pywebview ? "Installed." : "pywebview is needed to show the dials.",
       !s.pywebview && btn("Install", () => act("install_deps"), true)),
+    line(s.hwinfoInstalled ? "ok" : "", "HWiNFO64 installed",
+      s.hwinfoInstalled ? "Installed." : "HWiNFO64 reads all the sensors. Free.",
+      !s.hwinfoInstalled && btn("Install HWiNFO64", () => act("install_hwinfo"), true)),
     line(s.hwinfo ? "ok" : "", "HWiNFO64 running",
-      s.hwinfo ? "Running." : "Start HWiNFO64 (Sensors-only mode)."),
-    line(s.sharing ? "ok" : "", "HWiNFO sharing values (Gadget reporting)",
-      s.sharing ? `${s.sharing} readings shared.`
-                : "HWiNFO: Sensors → Settings → HWiNFO Gadget → tick “Enable reporting to Gadget”.",
-      btn("Import saved HWiNFO settings", () => act("import_hwinfo"))),
-    line(s.profile ? "ok" : "warn", "Saved HWiNFO settings",
-      s.profile ? `Saved ${date(s.profile)}. Restores this PC's HWiNFO setup (close HWiNFO before importing).`
+      s.hwinfo ? "Running." : "Not running.",
+      s.hwinfoInstalled && !s.hwinfo && btn("Start HWiNFO64", () => act("start_hwinfo"), true)),
+    line(s.gadget && s.sharing ? "ok" : (s.gadget ? "warn" : ""), "HWiNFO sharing values (Gadget reporting)",
+      s.sharing ? `${s.sharing} readings shared. See the sensor checklist below.`
+        : s.gadget ? "Turned on, but nothing shared yet: start HWiNFO, and tick sensors (checklist below)."
+        : "Off. New HWiNFO install? Close HWiNFO, then Apply default HWiNFO settings.",
+      btn("Apply default HWiNFO settings", () => act("default_hwinfo"))),
+    line(s.profile ? "ok" : "warn", "Saved HWiNFO settings (this PC)",
+      s.profile ? `Saved ${date(s.profile)}. Restores this PC's exact HWiNFO setup (close HWiNFO before importing).`
                 : "Not saved yet.",
-      btn("Save current HWiNFO settings", () => act("export_hwinfo"))),
+      btn("Save current", () => act("export_hwinfo")),
+      s.profile && btn("Import saved", () => act("import_hwinfo"))),
     line(s.missing.length ? "warn" : (s.sharing ? "ok" : ""), "All dial values found",
       s.missing.length ? `${s.missing.length} value(s) missing (see below).` : (s.sharing ? "Everything matches." : "Waiting for HWiNFO.")),
     line(s.dials ? "ok" : "warn", "Dials running",
@@ -192,6 +209,16 @@ async function refreshStatus() {
         `${m.dial} / ${m.where}: “${m.label}”${m.source ? ` (${m.source})` : ""} `,
         m.suggest.length ? `— did you mean: ${m.suggest.join(", ")}?` : "— tick it in HWiNFO's Gadget tab.")))
     : h("p", {}, s.sharing ? "None. Every dial value was found." : "HWiNFO isn't sharing values yet."));
+
+  const items = await api("/api/checklist");
+  const byDial = {};
+  items.forEach(it => (byDial[it.dial] ??= []).push(it));
+  $("#checklist").replaceChildren(...Object.entries(byDial).map(([dial, list]) =>
+    h("div", { className: "group" }, h("h4", {}, dial),
+      list.map(it => h("div", { className: "item" },
+        h("span", { className: "dot " + (it.found ? "ok" : "warn") }),
+        h("span", {}, it.what),
+        h("small", {}, it.found ? it.now : "tick one of: " + it.lookFor.join(" / ")))))));
 }
 refreshStatus();
 setInterval(() => { if (!$("#tab-setup").hidden) refreshStatus(); }, 5000);
