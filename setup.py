@@ -14,6 +14,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import autodials
 import tools
 from helper import (DIALS_FILE, HERE, POSITIONS_FILE, PORT as DIALS_PORT, Handler, Server,
                     load_json, monitor_connected, read_hwinfo)
@@ -187,6 +188,8 @@ class SetupHandler(Handler):
             self.send_json(status())
         elif path == "/api/readings":
             self.send_json(read_hwinfo())
+        elif path == "/api/generate":
+            self.send_json(autodials.generate(read_hwinfo()))
         elif path == "/dials.json" and draft is not None and "saved" not in self.path:
             self.send_json(draft)  # live preview shows unsaved edits
         else:

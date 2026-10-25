@@ -43,6 +43,7 @@
   .editor { display: grid; grid-template-columns: 190px 1fr 300px; gap: 18px; align-items: start; }
   .list button { display: block; width: 100%; text-align: left; margin-bottom: 4px; }
   .list button.on { border-color: var(--accent); }
+  .list #generate { margin-top: 12px; white-space: normal; }
   .form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
   .form h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); margin: 16px 0 6px; }
   .form h3:first-child { margin-top: 0; }
@@ -94,6 +95,8 @@
       <div class="list">
         <div id="dial-list"></div>
         <button class="btn small" id="add-dial">+ Add dial</button>
+        <button class="btn small" id="generate" title="Builds dials from what HWiNFO shares on this PC">
+          Create dials for this PC</button>
       </div>
       <div class="form" id="form"></div>
       <div class="preview">
@@ -222,7 +225,8 @@ function changed() {
 }
 async function pushDraft() {
   await api("/api/draft", dials);
-  $("#preview").src = `dial.html?i=${current}&preview&t=${Date.now()}`;
+  // size=300 fits the preview box whatever size the dial is set to
+  $("#preview").src = `dial.html?i=${current}&size=300&preview&t=${Date.now()}`;
 }
 
 function renderList() {
@@ -368,6 +372,15 @@ $("#add-dial").onclick = () => {
   dials.push({ title: "New dial", size: 330,
                left: { label: "", min: 0, max: 100 }, right: { label: "", min: 0, max: 100 }, rows: [] });
   current = dials.length - 1; renderList(); renderForm(); changed();
+};
+$("#generate").onclick = async () => {
+  if (!confirm("Replace all dials in the editor with dials made for this PC's hardware?\n\n" +
+               "Nothing is saved until you press Save. Undo changes brings yours back.")) return;
+  const made = await api("/api/generate");
+  if (!made.length) return toast({ ok: false, message: "HWiNFO isn't sharing any values yet (see the Setup tab)." });
+  dials = made; current = 0;
+  renderList(); renderForm(); changed();
+  toast({ ok: true, message: `Created ${made.length} dials. Check them in the preview, then Save.` });
 };
 $("#save").onclick = async () => {
   const res = await act("save", dials);
