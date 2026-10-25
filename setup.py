@@ -144,7 +144,7 @@ def startup_off():
 
 
 def install_hwinfo():
-    # in its own window so you can see the progress; Windows asks for permission
+    # in its own window so you can see the progress; Windows may ask for permission
     subprocess.Popen(["cmd", "/c", "start", "Installing HWiNFO64", "cmd", "/c",
                       "winget install --id REALiX.HWiNFO --exact --accept-package-agreements "
                       "--accept-source-agreements & echo. & pause"])
@@ -154,8 +154,10 @@ def install_hwinfo():
 
 def start_hwinfo():
     import os
-    os.startfile(HWINFO_EXE)  # HWiNFO asks Windows for administrator rights itself
-    return {"ok": True, "message": "Starting HWiNFO64 (allow it when Windows asks)."}
+    # Start it from its own folder, like its shortcut does (started from elsewhere it
+    # once crashed on startup). HWiNFO asks Windows for administrator rights itself.
+    os.startfile(HWINFO_EXE, cwd=str(HWINFO_EXE.parent))
+    return {"ok": True, "message": "Starting HWiNFO64 (if Windows asks for permission, allow it)."}
 
 
 def install_deps():
