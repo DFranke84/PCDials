@@ -3,3 +3,5 @@ __pycache__/
 positions.json
 pcdials*.log
 pending-hwinfo-ticks.json
+# HWiNFO settings backups: specific to this PC, kept local
+hwinfo-backups/
