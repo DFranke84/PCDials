@@ -104,6 +104,7 @@ user32 = ctypes.windll.user32
 GWL_EXSTYLE = -20
 WS_EX_TOOLWINDOW = 0x80      # no taskbar button, not in Alt+Tab
 WS_EX_NOACTIVATE = 0x8000000  # clicking it never steals focus (e.g. from a game)
+WS_EX_APPWINDOW = 0x40000     # forces a taskbar button
 HWND_BOTTOM = 1
 SWP_NOSIZE, SWP_NOMOVE, SWP_NOACTIVATE = 0x1, 0x2, 0x10
 MONITOR_DEFAULTTONULL = 0
@@ -126,6 +127,7 @@ class Api:
         self._windows = []
         self._hidden = set()  # dial windows hidden because their monitor is off
         self._dragging = set()  # dials being dragged right now
+        self._tray = None  # the system tray icon
         self._positions = load_json(POSITIONS_FILE, {})
         self._dirty = False
         self.restart_requested = False
@@ -183,10 +185,13 @@ class Api:
     def set_size(self, i, size):
         self._pos(i)["size"] = size
         self._save_soon()
-        w = self._windows[i]
-        to_desktop_layer(w, size)
-        # reload a moment later, once this call has returned to the page
-        threading.Timer(0.2, lambda: w.load_url(self._url(i))).start()
+        to_desktop_layer(self._windows[i], size)  # the page then reloads itself at the new size
+
+    def set_all_locked(self, locked):
+        for i, w in enumerate(self._windows):
+            self._pos(i)["locked"] = locked
+            w.evaluate_js(f"setLocked({'true' if locked else 'false'})")
+        self._save_soon()
 
     def reload_all(self):
         for w in self._windows:
@@ -197,6 +202,8 @@ class Api:
         self.quit()
 
     def quit(self):
+        if self._tray:
+            self._tray.Visible = False  # otherwise a dead icon lingers in the tray
         for w in list(self._windows):
             w.destroy()
 
@@ -235,7 +242,9 @@ def to_desktop_layer(window, size=None):
     With size: also set the exact window size (pywebview shrinks frameless windows)."""
     hwnd = window.native.Handle.ToInt64()
     style = user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-    user32.SetWindowLongW(hwnd, GWL_EXSTYLE, style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE)
+    # pywebview adds WS_EX_APPWINDOW, which forces a taskbar button; take it off
+    user32.SetWindowLongW(hwnd, GWL_EXSTYLE,
+                          (style | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) & ~WS_EX_APPWINDOW)
     flags = SWP_NOMOVE | SWP_NOACTIVATE
     px = 0
     if size:
@@ -280,6 +289,55 @@ def watch_monitors(api):
                 pass  # window closing
 
 
+def tray_icon(api, window):
+    """The dials' icon in the system tray (they have no taskbar button), with a menu.
+    Created on the window's UI thread, which runs the tray icon's messages."""
+    import System.Drawing.Drawing2D as Drawing2D
+    from System import Action, EventHandler
+    from System.Drawing import Bitmap, Color, Graphics, Icon, Pen, SolidBrush
+    from System.Windows.Forms import ContextMenuStrip, NotifyIcon, ToolStripSeparator
+
+    def draw_icon():
+        # a small gauge: dark disc, grey track, green arc
+        bmp = Bitmap(32, 32)
+        g = Graphics.FromImage(bmp)
+        g.SmoothingMode = Drawing2D.SmoothingMode.AntiAlias
+        g.FillEllipse(SolidBrush(Color.FromArgb(40, 40, 40)), 3, 3, 26, 26)
+        g.DrawArc(Pen(Color.FromArgb(90, 90, 90), 4), 4, 4, 24, 24, 135, 270)
+        g.DrawArc(Pen(Color.FromArgb(70, 210, 60), 4), 4, 4, 24, 24, 135, 170)
+        g.Dispose()
+        return Icon.FromHandle(bmp.GetHicon())
+
+    def later(fn):  # run menu actions off the UI thread so they can't block it
+        return EventHandler(lambda s, e: threading.Thread(target=fn, daemon=True).start())
+
+    def open_setup():
+        subprocess.Popen([sys.executable, str(HERE / "setup.py")], cwd=HERE)
+
+    def create():
+        menu = ContextMenuStrip()
+        for text, fn in [("Open PCDials Setup", open_setup),
+                         ("Lock all dials", lambda: api.set_all_locked(True)),
+                         ("Unlock all dials", lambda: api.set_all_locked(False)),
+                         ("Reload all dials", api.reload_all),
+                         ("Restart", api.restart),
+                         (None, None),
+                         ("Close dials", api.quit)]:
+            if text is None:
+                menu.Items.Add(ToolStripSeparator())
+            else:
+                menu.Items.Add(text).Click += later(fn)
+        tray = NotifyIcon()
+        tray.Icon = draw_icon()
+        tray.Text = "PCDials"
+        tray.ContextMenuStrip = menu
+        tray.DoubleClick += later(open_setup)
+        tray.Visible = True
+        api._tray = tray
+
+    window.native.Invoke(Action(create))
+
+
 def watch_dials_file(api, count):
     """Pick up changes to dials.json (from the setup app or by hand) automatically."""
     last = DIALS_FILE.stat().st_mtime
@@ -319,6 +377,8 @@ def run_windows():
             no_background(w)  # first, before anything can repaint it
             to_desktop_layer(w, size)
             place(w, api._pos(i), api._hidden)
+            if i == 0:
+                tray_icon(api, w)
             w.events.moved += lambda x, y: api._moved(i)  # only track moves after placing
 
         w.events.shown += on_shown
