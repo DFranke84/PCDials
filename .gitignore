@@ -2,3 +2,4 @@ __pycache__/
 # written by the app (dial positions/sizes on this PC)
 positions.json
 pcdials*.log
+pending-hwinfo-ticks.json
