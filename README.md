@@ -33,27 +33,39 @@ Opens the **PCDials Setup** window:
    - **HWiNFO64** (Windows asks for permission),
    - **pywebview** (the part that draws the dial windows),
    then opens **PCDials Setup**. (`Install.bat check` only reports, installs nothing.)
-3. **Set up HWiNFO** (Setup tab, top to bottom):
-   - If HWiNFO is open, close it (right-click its tray icon → Exit).
-   - **Apply default HWiNFO settings.** This turns on Gadget reporting, shares the
-     sensors that are the same on every PC (memory, FPS, CPU totals, Intel CPU temps
-     and power, NVIDIA GPU), and sets HWiNFO to open as Sensors only, minimized, and
-     start with Windows. Windows may ask permission to change HWiNFO's settings file.
-   - **Start HWiNFO64.** First time only: it may show a welcome or "Sensors only"
-     prompt; choose **Sensors-only** and **Start**.
-4. **Tick the rest** (board temps, fans, drives, AMD parts). The **Sensor checklist**
-   at the bottom of the Setup tab shows a yellow dot for each missing one and the names
-   to look for. In HWiNFO: **Sensors → Settings (gear) → HWiNFO Gadget** tab → select
-   the sensor → tick **Report value in Gadget** → OK. The checklist turns green
-   within a few seconds.
+3. **Set up HWiNFO automatically** (Setup tab):
+   - **Start HWiNFO64.** First time only: choose **Sensors-only** and **Start**.
+   - In HWiNFO: **Sensors → Settings (gear) → General** → tick
+     **Shared Memory Support** → OK. (Free. It turns itself off after 12 hours in the
+     free version, which is fine: it's only needed for this step.)
+   - Setup → **Tick all sensors**. It reads every sensor this PC has.
+   - **Exit HWiNFO** (tray icon → Exit). Setup then ticks all of them, turns on Gadget
+     reporting, and sets HWiNFO to open as Sensors only, minimized, and start with
+     Windows (Windows may ask permission to change HWiNFO's settings file).
+   - **Start HWiNFO64** again. The **Sensor checklist** should now be all green.
+
+   *Without shared memory:* exit HWiNFO, use **Apply default HWiNFO settings** (ticks the
+   sensors that are the same on every PC: memory, FPS, CPU totals, Intel CPU, NVIDIA
+   GPU), start HWiNFO, then tick anything still yellow in the **Sensor checklist** by
+   hand: HWiNFO → **Sensors → Settings (gear) → HWiNFO Gadget** tab → select the
+   sensor → tick **Report value in Gadget** → OK.
+4. **Save a backup:** Setup → *HWiNFO settings backups* → type a name (e.g.
+   "Fresh install, all sensors") → **Save backup**.
 5. **Dials tab → Create dials for this PC.** Check them in the preview, adjust
    anything you like, then **Save**.
 6. **Setup tab → Start** the dials, and **Turn on** "Start dials when I log in".
-7. Drag the dials where you want them. Once HWiNFO is how you like it,
-   **Save current** (Saved HWiNFO settings) keeps a backup for this PC.
+7. Drag the dials where you want them.
 
-The saved HWiNFO settings in `hwinfo-profile` only fit the PC they were saved on;
-on a new PC use **Apply default HWiNFO settings** instead.
+## HWiNFO settings backups
+
+Setup → *HWiNFO settings backups*: **Save backup** stores HWiNFO's settings (which sensors
+are shared, renamed sensors, options) in `hwinfo-backups\<date time> - <name>\`. Keep as
+many as you like. **Restore** puts one back exactly (exit HWiNFO first); your current
+settings are saved as a "Before restoring …" backup first, so a restore can always be
+undone. **Delete** moves a backup to the Recycle Bin.
+
+Backups fit the PC they were saved on (HWiNFO ties settings to the hardware). On a new
+PC, use **Tick all sensors** instead.
 
 ## Multiple monitors
 
@@ -73,10 +85,10 @@ back. If you get rid of a monitor, use **Move missing dials to main monitor** in
 | `Install.bat` | Installs Python, HWiNFO64 and pywebview if missing, then opens Setup |
 | `Start.bat` | Starts the dials (does nothing if they're already running) |
 | `pcdials.log` | What the dials did (started, closed, errors), if they ever stop unexpectedly |
-| `tools.py` | `check`, `export-hwinfo`, `import-hwinfo`, `default-hwinfo` (see below) |
+| `tools.py` | Command-line versions: `check`, `backup-hwinfo [name]`, `list-backups`, `restore-hwinfo [name]`, `auto-tick`, `default-hwinfo` |
+| `hwinfo-backups\` | Dated, named backups of HWiNFO's settings |
 | `setup.py`, `setup.html` | The PCDials Setup window |
 | `autodials.py` | Builds dials for any PC's hardware (`python autodials.py` prints them) |
-| `hwinfo-profile\` | Saved copy of your HWiNFO settings |
 
 ## Using the dials
 
@@ -90,17 +102,12 @@ back. If you get rid of a monitor, use **Move missing dials to main monitor** in
 
 ## Setting up HWiNFO (new install or new PC)
 
-**Same PC, HWiNFO reinstalled:** close HWiNFO, then run
+**Same PC, HWiNFO reinstalled:** exit HWiNFO, then Setup → **Restore** a backup
+(or `python tools.py restore-hwinfo`).
 
-```
-python tools.py import-hwinfo
-```
-
-That restores which sensors are shared, any renamed sensors and Gadget reporting.
-The saved profile only matches *this* PC's hardware.
-
-**New HWiNFO install (any PC):** close HWiNFO, then `python tools.py default-hwinfo`
-(same as **Apply default HWiNFO settings** in Setup), then tick the rest by hand.
+**New HWiNFO install (any PC):** Setup → **Tick all sensors** (see *Starting on a new PC*),
+or without shared memory: exit HWiNFO, `python tools.py default-hwinfo`, then tick the
+rest by hand.
 
 **By hand:**
 

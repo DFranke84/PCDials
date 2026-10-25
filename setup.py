@@ -67,10 +67,16 @@ def status():
         pywebview = True
     except ImportError:
         pywebview = False
-    readings = read_hwinfo()
     hwinfo = tools.hwinfo_running()
-    profile = tools.REG_FILE.stat().st_mtime if tools.REG_FILE.exists() else None
+    # automatic ticking, step 2: HWiNFO has exited, so apply the sensors noted in step 1
+    applied = captured(tools.apply_pending) if tools.PENDING.exists() and not hwinfo else None
+    readings = read_hwinfo()
+    shared = tools.read_shared_memory() if hwinfo else None
     return {
+        "applied": applied,
+        "pending": tools.PENDING.exists(),
+        "sharedMemory": len(shared) if shared else 0,
+        "backups": tools.list_backups(),
         "python": sys.version.split()[0],
         "pywebview": pywebview,
         "startup": STARTUP_LINK.exists(),
@@ -79,7 +85,6 @@ def status():
         "hwinfo": hwinfo,
         "sharing": len(readings),
         "dials": dials_running(),
-        "profile": profile,
         "missing": tools.missing_values(readings, json.loads(DIALS_FILE.read_text(encoding="utf-8")))
                    if readings else [],
     }
@@ -197,8 +202,7 @@ ACTIONS = {
     "install_deps": install_deps,
     "install_hwinfo": install_hwinfo, "start_hwinfo": start_hwinfo,
     "default_hwinfo": lambda: captured(tools.apply_default_hwinfo),
-    "export_hwinfo": lambda: captured(tools.export_hwinfo),
-    "import_hwinfo": lambda: captured(tools.import_hwinfo),
+    "auto_tick": lambda: captured(tools.auto_tick),
 }
 
 
@@ -238,6 +242,12 @@ class SetupHandler(Handler):
                 self.send_json({"ok": True})
             elif name == "save":
                 self.send_json(save_dials(body))
+            elif name == "backup_hwinfo":
+                self.send_json(captured(lambda: 0 if tools.backup_hwinfo(body.get("name", "")) else 1))
+            elif name == "restore_hwinfo":
+                self.send_json(captured(lambda: tools.restore_hwinfo(body["folder"])))
+            elif name == "delete_backup":
+                self.send_json(captured(lambda: tools.delete_backup(body["folder"])))
             elif name == "move_to_main":
                 self.send_json(move_to_main(bool(body and body.get("all"))))
             elif name in ACTIONS:
