@@ -1,0 +1,233 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PC Dial</title>
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; user-select: none; }
+  body { font-family: "Segoe UI", sans-serif; }
+  svg { display: block; }
+  .track { fill: none; stroke: #111; }
+  .fill  { fill: none; stroke-linecap: butt; stroke-dasharray: 0 1;
+           transition: stroke-dasharray .6s, stroke .6s; }
+  .face  { fill: rgba(30, 30, 30, .55); stroke: #555; stroke-width: 2; }
+  .big   { fill: #eee; font-weight: 700; text-anchor: middle; }
+  .small { fill: #ddd; text-anchor: middle; }
+  .cap   { fill: #bbb; text-anchor: middle; }
+  .name  { fill: #8a8f98; font-size: .8em; }
+  .warn  { fill: #ffc933; }
+  .danger { fill: #ff4040; font-weight: 700; }
+  .title { fill: #aaa; text-anchor: middle; }
+  #menu { position: fixed; background: #222; border: 1px solid #555; border-radius: 6px;
+          font-size: 13px; color: #ddd; padding: 4px 0; white-space: nowrap; }
+  #menu div { padding: 4px 12px; cursor: default; }
+  #menu div:hover { background: #3a3f48; }
+</style>
+</head>
+<body>
+<svg id="dial"></svg>
+<div id="menu" hidden>
+  <div id="lock" data-act="lock">Lock position</div>
+  <div data-size="200">Size: Small</div>
+  <div data-size="260">Size: Medium</div>
+  <div data-size="330">Size: Large</div>
+  <div data-act="reload_all">Reload all dials</div>
+  <div data-act="restart">Restart</div>
+  <div data-act="quit">Close all dials</div>
+</div>
+<script>
+const i = Number(new URLSearchParams(location.search).get("i") || 0);
+// ?size= overrides the size in dials.json (set from the right-click menu)
+const sizeOverride = Number(new URLSearchParams(location.search).get("size")) || null;
+const svg = document.getElementById("dial");
+// ?preview gives a dark background, for checking the dial in a normal browser
+if (new URLSearchParams(location.search).has("preview")) document.body.style.background = "#2b2f36";
+let dial, els = {};
+
+// Angles in degrees, 0 = top, increasing clockwise.
+function pt(cx, cy, r, a) {
+  const rad = a * Math.PI / 180;
+  return [cx + r * Math.sin(rad), cy - r * Math.cos(rad)];
+}
+// Arc from angle "from" to "to"; goes anticlockwise when to < from.
+function arc(cx, cy, r, from, to) {
+  const [x1, y1] = pt(cx, cy, r, from), [x2, y2] = pt(cx, cy, r, to);
+  return `M${x1} ${y1} A${r} ${r} 0 ${Math.abs(to - from) > 180 ? 1 : 0} ${to > from ? 1 : 0} ${x2} ${y2}`;
+}
+function el(tag, attrs, text) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  svg.appendChild(e);
+  return e;
+}
+// green (0) -> yellow -> red (1); "invert": true flips it (for FPS, where high is good)
+const colour = (f, spec) => `hsl(${120 * (spec.invert ? f : 1 - f)}, 100%, 45%)`;
+
+// Match by HWiNFO label (+ optional "source" text). If several match, prefer the one
+// whose HWiNFO unit equals the first word of our unit (e.g. "CPU" fan RPM vs "CPU" °C).
+function find(readings, spec) {
+  const hits = readings.filter(r => r.label === spec.label && (!spec.source || r.sensor.includes(spec.source)));
+  const unit = (spec.unit ?? "").trim().split(" ")[0];
+  return hits.find(r => unit && r.text.endsWith(" " + unit)) ?? hits[0];
+}
+// value after applying the optional "scale" (e.g. MB -> GB)
+function val(r, spec) {
+  return (!r || r.value === null) ? null : r.value * (spec.scale ?? 1);
+}
+function fmt(r, spec) {
+  const v = val(r, spec);
+  if (v === null) return "--";
+  const d = spec.decimals ?? (Math.abs(v) >= 100 || Number.isInteger(v) ? 0 : 1);
+  // "showPercent": true adds how full it is between min and max, e.g. "15.0 GB · 47%"
+  const pct = spec.showPercent ? ` · ${Math.round(frac(r, spec) * 100)}%` : "";
+  return v.toFixed(d) + (spec.unit ?? "") + pct;
+}
+// "warn" / "danger" thresholds colour a value yellow / red. If danger is below warn,
+// low values are the problem (e.g. a pump slowing down).
+function level(r, spec) {
+  const v = val(r, spec);
+  if (v === null || spec.danger === undefined) return "";
+  const low = spec.warn !== undefined && spec.danger < spec.warn;
+  const past = t => t !== undefined && (low ? v <= t : v >= t);
+  return past(spec.danger) ? "danger" : past(spec.warn) ? "warn" : "";
+}
+function frac(r, spec) {
+  const v = val(r, spec);
+  if (v === null) return 0;
+  return Math.min(1, Math.max(0, (v - spec.min) / (spec.max - spec.min)));
+}
+
+function build() {
+  const S = sizeOverride || dial.size || 330, c = S / 2, R = S * 0.42, W = S * 0.065;
+  svg.setAttribute("width", S);
+  svg.setAttribute("height", S);
+  svg.setAttribute("viewBox", `0 0 ${S} ${S}`);
+  els = { S, c, R, W };
+
+  el("circle", { cx: c, cy: c, r: R - W / 2 - 4, class: "face" });
+  el("path", { d: arc(c, c, R, 225, 360), class: "track", "stroke-width": W });
+  el("path", { d: arc(c, c, R, 0, 135), class: "track", "stroke-width": W });
+  // Fills are full-length arcs, both starting at the bottom; how much shows is set
+  // with stroke-dasharray, so the fill always slides along the circle.
+  els.left = el("path", { d: arc(c, c, R, 225, 360), pathLength: 1, class: "fill", "stroke-width": W - 4 });
+  els.right = el("path", { d: arc(c, c, R, 135, 0), pathLength: 1, class: "fill", "stroke-width": W - 4 });
+
+  // max labels at the top of each arc
+  el("text", { x: c - S * 0.07, y: c - R + W * 0.25, class: "cap", "font-size": S * 0.036 },
+     `${dial.left.max}${dial.left.unit}`);
+  el("text", { x: c + S * 0.07, y: c - R + W * 0.25, class: "cap", "font-size": S * 0.036 },
+     `${dial.right.max}${dial.right.unit}`);
+
+  // Text auto-shrinks to stay inside the face circle. half(y, fs): half the usable
+  // width at that height, for text of font size fs with its baseline at y.
+  const face = R - W / 2 - 4, pad = S * 0.03;
+  const half = (y, fs) => Math.min(...[y - 0.75 * fs, y + 0.25 * fs].map(
+    yy => Math.sqrt(Math.max(0, face * face - (yy - c) ** 2)))) - pad;
+  const fitTo = (t, fs, max) => Object.assign(t, { _fs: fs, _max: max });
+
+  const bigY = c - S * 0.2, bigFs = S * 0.1;
+  els.big = fitTo(el("text", { x: c, y: bigY, class: "big", "font-size": bigFs }), bigFs, 2 * half(bigY, bigFs));
+  // Rows share the space between the big line and the narrow bottom of the circle;
+  // more rows means tighter spacing (and slightly smaller text).
+  const rows = dial.rows || [];
+  const top = c - S * 0.075, bottom = c + S * 0.17;
+  const step = Math.min(S * 0.1, (bottom - top) / Math.max(1, rows.length - 1));
+  const ox = S * 0.185, rowFs = Math.min(S * 0.052, step * 0.62), gap = S * 0.015;
+  els.rows = rows.map((row, n) => {
+    const y = top + n * step;
+    return row.map((spec, k) => {
+      const t = fitTo(el("text", {
+        x: row.length === 1 ? c : c + (k === 0 ? -1 : 1) * ox,
+        y, class: "small", "font-size": rowFs }), rowFs,
+        row.length === 1 ? 2 * half(y, rowFs) : 2 * Math.min(ox - gap, half(y, rowFs) - ox));
+      // optional short "name" shown dimmed in front of the value
+      if (spec.name) t.appendChild(Object.assign(
+        document.createElementNS(svg.namespaceURI, "tspan"),
+        { textContent: spec.name + " " })).setAttribute("class", "name");
+      t.appendChild(document.createElementNS(svg.namespaceURI, "tspan"));
+      return t;
+    });
+  });
+  // title sits between the two arc ends
+  els.title = fitTo(el("text", { x: c, y: c + R * 1.06, class: "title", "font-size": S * 0.065 }, dial.title),
+    S * 0.065, 2 * (R * 0.707 - W / 2));
+  fit(els.title);
+}
+
+// Shrink a text element (from its normal size) until it fits its _max width.
+function fit(t) {
+  t.setAttribute("font-size", t._fs);
+  const w = t.getComputedTextLength();
+  if (w > t._max) t.setAttribute("font-size", t._fs * t._max / w);
+}
+
+function update(readings) {
+  const { c, R } = els;
+  // "ignoreApps": skip readings from these programs (e.g. FPS of the desktop, not a game)
+  const ignore = dial.ignoreApps || [];
+  readings = readings.filter(r => !ignore.some(a => r.sensor.toLowerCase().includes(`[${a.toLowerCase()}]`)));
+  const L = find(readings, dial.left), Rt = find(readings, dial.right);
+  // "showApp": title shows the program being measured, e.g. "FPS · game.exe"
+  if (dial.showApp) {
+    const app = L && (L.sensor.match(/\[(.+)\]/) || [])[1];
+    els.title.textContent = app ? `${dial.title} · ${app}` : dial.title;
+    fit(els.title);
+  }
+  const fl = frac(L, dial.left), fr = frac(Rt, dial.right);
+  els.left.style.strokeDasharray = `${fl} 1`;
+  els.left.setAttribute("stroke", colour(fl, dial.left));
+  els.right.style.strokeDasharray = `${fr} 1`;
+  els.right.setAttribute("stroke", colour(fr, dial.right));
+  // The big line shows "big" if set, otherwise the left arc's reading.
+  // "bigExtra": a second reading shown on the big line, e.g. "33% · 2.2 GB"
+  const big = dial.big || dial.left, bigR = find(readings, big);
+  els.big.setAttribute("class", "big " + level(bigR, big));
+  els.big.textContent = fmt(bigR, big) +
+    (dial.bigExtra ? " · " + fmt(find(readings, dial.bigExtra), dial.bigExtra) : "");
+  fit(els.big);
+  (dial.rows || []).forEach((row, n) => row.forEach((spec, k) => {
+    const r = find(readings, spec), value = els.rows[n][k].lastChild;
+    value.textContent = fmt(r, spec);
+    value.setAttribute("class", level(r, spec));
+    fit(els.rows[n][k]);
+  }));
+}
+
+async function tick() {
+  try { update(await (await fetch("/data")).json()); } catch (e) { /* helper not running */ }
+}
+
+// ---- Widget window controls (only when running inside the PCDials app) ----
+// Unlocked: drag the dial anywhere to move it. Right-click for the menu.
+const menu = document.getElementById("menu");
+function setLocked(locked) {
+  svg.classList.toggle("pywebview-drag-region", !locked);
+  document.getElementById("lock").textContent = locked ? "Unlock position" : "Lock position";
+}
+document.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  if (!window.pywebview) return;
+  menu.style.left = Math.min(e.clientX, innerWidth - 150) + "px";
+  menu.style.top = Math.max(0, Math.min(e.clientY, innerHeight - menu.offsetHeight - 2)) + "px";
+  menu.hidden = false;
+});
+document.addEventListener("mousedown", e => { if (!menu.contains(e.target)) menu.hidden = true; });
+menu.addEventListener("click", async e => {
+  const act = e.target.dataset.act;
+  menu.hidden = true;
+  if (e.target.dataset.size) pywebview.api.set_size(i, Number(e.target.dataset.size));
+  else if (act === "lock") setLocked(await pywebview.api.toggle_lock(i));
+  else if (act) pywebview.api[act]();
+});
+window.addEventListener("pywebviewready", async () => setLocked(await pywebview.api.is_locked(i)));
+
+(async () => {
+  dial = (await (await fetch("/dials.json")).json())[i];
+  build();
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

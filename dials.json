@@ -1,0 +1,64 @@
+[
+  {
+    "title": "FPS",
+    "size": 300,
+    "showApp": true,
+    "ignoreApps": [ "dwm.exe", "explorer.exe", "chrome.exe", "msedge.exe", "msedgewebview2.exe", "firefox.exe",
+                    "Claude.exe", "Code.exe", "HWiNFO64.exe", "Taskmgr.exe", "steam.exe", "steamwebhelper.exe",
+                    "Discord.exe", "Spotify.exe", "ApplicationFrameHost.exe", "SearchHost.exe",
+                    "StartMenuExperienceHost.exe", "ShellExperienceHost.exe", "TextInputHost.exe" ],
+    "left":  { "label": "Framerate Presented (avg)", "unit": " FPS", "min": 0, "max": 144, "decimals": 0, "invert": true },
+    "right": { "label": "Frame Time Presented (avg)", "unit": "ms", "min": 0, "max": 50 },
+    "rows": [
+      [ { "name": "Frame", "label": "Frame Time Presented (avg)", "unit": " ms", "decimals": 1 } ],
+      [ { "name": "1% low", "label": "Framerate Presented (1% low)", "unit": " FPS", "decimals": 0 } ],
+      [ { "name": "0.1% low", "label": "Framerate Presented (0.1% low)", "unit": " FPS", "decimals": 0 } ]
+    ]
+  },
+  {
+    "title": "PRIME Z790-A",
+    "size": 330,
+    "big":   { "label": "Physical Memory Used", "unit": " GB", "scale": 0.0009765625, "min": 0, "max": 31.7, "decimals": 1, "showPercent": true, "warn": 27, "danger": 30 },
+    "left":  { "label": "Motherboard", "unit": "°C", "min": 20, "max": 70 },
+    "right": { "label": "VRM Thermistor", "unit": "°C", "min": 20, "max": 100 },
+    "rows": [
+      [ { "name": "Board", "label": "Motherboard", "unit": "°C", "warn": 45, "danger": 55 },
+        { "name": "VRM", "label": "VRM Thermistor", "unit": "°C", "warn": 85, "danger": 100 } ],
+      [ { "name": "CPU", "label": "CPU", "source": "PRIME Z790", "unit": " RPM", "warn": 300, "danger": 100 },
+        { "name": "Pump", "label": "AIO Pump", "unit": " RPM", "warn": 1500, "danger": 500 } ],
+      [ { "name": "Ch3", "label": "Chassis3", "unit": " RPM" },
+        { "name": "Ch4", "label": "Chassis4", "unit": " RPM" } ],
+      [ { "name": "SSD C:", "label": "Drive Temperature 3", "source": "[C:]", "unit": "°C", "warn": 65, "danger": 75 },
+        { "name": "PCH", "label": "PCH Temperature", "unit": "°C", "decimals": 0, "warn": 80, "danger": 90 } ]
+    ]
+  },
+  {
+    "title": "Core i9-12900K",
+    "size": 330,
+    "left":  { "label": "Total CPU Utility", "unit": "%", "min": 0, "max": 100, "decimals": 1 },
+    "right": { "label": "CPU Package", "source": "DTS", "unit": "°C", "min": 20, "max": 100 },
+    "rows": [
+      [ { "name": "Pkg", "label": "CPU Package", "source": "DTS", "unit": "°C", "warn": 85, "danger": 95 },
+        { "name": "Max", "label": "Core Max", "unit": "°C", "warn": 90, "danger": 98 } ],
+      [ { "name": "Clock", "label": "Core Effective Clocks", "unit": " GHz", "scale": 0.001, "decimals": 2 },
+        { "name": "Vcore", "label": "Vcore", "unit": " V", "decimals": 3 } ],
+      [ { "name": "Pkg", "label": "CPU Package Power", "unit": " W", "decimals": 0 },
+        { "name": "Cores", "label": "IA Cores Power", "unit": " W", "decimals": 0 } ]
+    ]
+  },
+  {
+    "title": "RTX 3060",
+    "size": 330,
+    "big":   { "label": "GPU Memory Allocated", "unit": " GB", "scale": 0.0009765625, "min": 0, "max": 12, "decimals": 1, "showPercent": true, "warn": 10.8, "danger": 11.5 },
+    "left":  { "label": "GPU Core Load", "unit": "%", "min": 0, "max": 100, "invert": true },
+    "right": { "label": "GPU Temperature", "unit": "°C", "min": 20, "max": 90 },
+    "rows": [
+      [ { "name": "Load", "label": "GPU Core Load", "unit": "%", "decimals": 0 },
+        { "name": "Mem", "label": "GPU Memory Controller Load", "unit": "%", "decimals": 0 } ],
+      [ { "name": "GPU", "label": "GPU Temperature", "unit": "°C", "decimals": 0, "warn": 75, "danger": 83 },
+        { "name": "Hot", "label": "GPU Hot Spot Temperature", "unit": "°C", "decimals": 0, "warn": 90, "danger": 100 } ],
+      [ { "name": "Power", "label": "GPU Power", "unit": " W", "decimals": 0 },
+        { "name": "Fan", "label": "GPU Fan1", "unit": " RPM" } ]
+    ]
+  }
+]
