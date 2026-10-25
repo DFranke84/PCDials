@@ -125,6 +125,7 @@ class Api:
         self._dials = dials
         self._windows = []
         self._hidden = set()  # dial windows hidden because their monitor is off
+        self._dragging = set()  # dials being dragged right now
         self._positions = load_json(POSITIONS_FILE, {})
         self._dirty = False
         self.restart_requested = False
@@ -145,13 +146,21 @@ class Api:
             time.sleep(1)
             self._save()
 
-    def _moved(self, i):
-        # Save real screen pixels (not DPI-scaled units) so dials on monitors with
-        # different scaling come back in exactly the same place.
-        # Ignore moves while the dial's monitor is off: that's Windows pushing it
-        # onto another screen, not you dragging it.
-        if not monitor_connected(self._pos(i)):
+    def dragging(self, i, on):
+        """Called by the dial page when you start/stop dragging it."""
+        if on:
+            self._dragging.add(i)
+        else:
+            self._moved(i, force=True)  # the spot you let go at
+            self._dragging.discard(i)
+
+    def _moved(self, i, force=False):
+        # Only save moves you make by dragging. Other moves (Windows pushing a dial
+        # off a monitor that turned off, or our own repositioning) don't count.
+        if i not in self._dragging and not force:
             return
+        # Real screen pixels (not DPI-scaled units), so dials on monitors with
+        # different scaling come back in exactly the same place.
         r = RECT()
         user32.GetWindowRect(self._windows[i].native.Handle.ToInt64(), ctypes.byref(r))
         self._pos(i).update(x=r.left, y=r.top)
@@ -176,7 +185,8 @@ class Api:
         self._save_soon()
         w = self._windows[i]
         to_desktop_layer(w, size)
-        w.load_url(self._url(i))
+        # reload a moment later, once this call has returned to the page
+        threading.Timer(0.2, lambda: w.load_url(self._url(i))).start()
 
     def reload_all(self):
         for w in self._windows:
@@ -191,12 +201,33 @@ class Api:
             w.destroy()
 
 
-def monitor_connected(pos):
-    """True if the saved spot (top-left, in screen pixels) is on a connected monitor.
-    Dials with no saved spot yet count as connected."""
+def monitor_connected(pos, size=330):
+    """True if any part of the dial at its saved spot (screen pixels) is on a connected
+    monitor. Dials with no saved spot yet count as connected."""
     if "x" not in pos:
         return True
-    return bool(user32.MonitorFromPoint(POINT(pos["x"] + 20, pos["y"] + 20), MONITOR_DEFAULTTONULL))
+    r = RECT(pos["x"], pos["y"], pos["x"] + size, pos["y"] + size)
+    return bool(user32.MonitorFromRect(ctypes.byref(r), MONITOR_DEFAULTTONULL))
+
+
+def no_background(window):
+    """Never paint a window background behind the dial. pywebview's see-through
+    windows only stay see-through until the window first paints its background
+    (a resize, or moving to another monitor, triggers that: you'd get a grey square)."""
+    from System import Action, Array, Object
+    from System.Reflection import BindingFlags
+    from System.Windows.Forms import ControlStyles
+    form = window.native
+    styles = ControlStyles.Opaque | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint
+
+    def apply():
+        stack = [form]
+        while stack:
+            c = stack.pop()
+            c.GetType().GetMethod("SetStyle", BindingFlags.NonPublic | BindingFlags.Instance) \
+                .Invoke(c, Array[Object]([styles, True]))
+            stack.extend(list(c.Controls))
+    form.Invoke(Action(apply))
 
 
 def to_desktop_layer(window, size=None):
@@ -219,13 +250,13 @@ def place(window, pos, hidden):
     hidden: set of windows we hid. Only those are shown again; pywebview shows the
     others itself (showing them early breaks their see-through background)."""
     hwnd = window.native.Handle.ToInt64()
-    if not monitor_connected(pos):
+    r = RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(r))
+    if not monitor_connected(pos, r.right - r.left):
         user32.ShowWindow(hwnd, SW_HIDE)
         hidden.add(hwnd)
         return
     if "x" in pos:
-        r = RECT()
-        user32.GetWindowRect(hwnd, ctypes.byref(r))
         if (r.left, r.top) != (pos["x"], pos["y"]):
             user32.SetWindowPos(hwnd, HWND_BOTTOM, pos["x"], pos["y"], 0, 0,
                                 SWP_NOSIZE | SWP_NOACTIVATE)
@@ -240,6 +271,8 @@ def watch_monitors(api):
     while True:
         time.sleep(2)
         for i, w in enumerate(list(api._windows)):
+            if i in api._dragging:
+                continue  # don't fight a drag in progress
             try:
                 to_desktop_layer(w)
                 place(w, api._pos(i), api._hidden)
@@ -283,6 +316,7 @@ def run_windows():
             resizable=False, focus=False,
         )
         def on_shown(w=w, i=i, size=size):
+            no_background(w)  # first, before anything can repaint it
             to_desktop_layer(w, size)
             place(w, api._pos(i), api._hidden)
             w.events.moved += lambda x, y: api._moved(i)  # only track moves after placing
