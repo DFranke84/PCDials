@@ -19,6 +19,20 @@ Opens the **PCDials Setup** window:
   right now (with live values), set units, ranges, yellow/red limits, rows; add or delete
   dials. The preview updates as you type; **Save** writes `dials.json` and the running
   dials update by themselves within a couple of seconds.
+- **Create dials for this PC** (Dials tab): builds FPS, motherboard, CPU and GPU dials
+  from whatever hardware this PC has (Intel/AMD CPUs, NVIDIA/AMD GPUs, common boards),
+  with suitable warning limits. It only fills the editor; nothing changes until you
+  **Save**, and **Undo changes** brings your old dials back.
+
+## Moving to a different PC
+
+Copy the `PCDials` folder, install Python and HWiNFO64, then run `python setup.py`:
+
+1. **Install** pywebview if asked (Setup tab).
+2. In HWiNFO, turn on Gadget reporting and tick the sensors you want (see below).
+   The saved HWiNFO settings in `hwinfo-profile` only fit the PC they came from.
+3. Dials tab → **Create dials for this PC**, check the preview, **Save**.
+4. Setup tab → **Start** the dials, and **Turn on** start at login.
 
 ## Multiple monitors
 
@@ -37,6 +51,7 @@ back. If you get rid of a monitor, use **Move missing dials to main monitor** in
 | `dial.html` | How a dial is drawn (shared by all dials) |
 | `tools.py` | `check`, `export-hwinfo`, `import-hwinfo` (see below) |
 | `setup.py`, `setup.html` | The PCDials Setup window |
+| `autodials.py` | Builds dials for any PC's hardware (`python autodials.py` prints them) |
 | `hwinfo-profile\` | Saved copy of your HWiNFO settings |
 
 ## Using the dials
@@ -87,6 +102,7 @@ Each value can use:
 |---|---|
 | `label` | HWiNFO's name for the reading (exactly as shown in HWiNFO) |
 | `source` | Text from the sensor group, when the same label appears more than once (e.g. `"DTS"`, `"[C:]"`) |
+| `hwunit` | HWiNFO's own unit, when the value is shown converted (e.g. `"MB"` shown as GB) and the label is shared |
 | `name` | Short dimmed name shown before the value |
 | `unit`, `decimals` | How the number is shown |
 | `scale` | Multiply first (e.g. `0.0009765625` turns MB into GB) |
