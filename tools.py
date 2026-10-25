@@ -22,6 +22,7 @@ from pathlib import Path
 from helper import DIALS_FILE, read_hwinfo
 
 HERE = Path(__file__).parent
+HIDDEN = subprocess.CREATE_NO_WINDOW  # background commands: no console window flashing up
 BACKUPS = HERE / "hwinfo-backups"  # dated, named copies of HWiNFO's settings
 HWINFO_INI = Path(r"C:\Program Files\HWiNFO64\HWiNFO64.INI")
 HWINFO_REG = r"HKCU\Software\HWiNFO64"
@@ -86,10 +87,30 @@ def check():
 
 # ---------------------------------------------------------------- HWiNFO settings backups
 
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [("dwSize", ctypes.c_ulong), ("cntUsage", ctypes.c_ulong), ("th32ProcessID", ctypes.c_ulong),
+                ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", ctypes.c_ulong),
+                ("cntThreads", ctypes.c_ulong), ("th32ParentProcessID", ctypes.c_ulong),
+                ("pcPriClassBase", ctypes.c_long), ("dwFlags", ctypes.c_ulong),
+                ("szExeFile", ctypes.c_wchar * 260)]
+
+
 def hwinfo_running():
-    out = subprocess.run(["tasklist", "/fi", "imagename eq HWiNFO64.exe"],
-                         capture_output=True, text=True).stdout
-    return "hwinfo64.exe" in out.lower()  # Windows may list it as HWiNFO64.EXE
+    """Ask Windows for the process list directly. (Running "tasklist" instead would
+    flash a console window every time Setup refreshes.)"""
+    k = ctypes.windll.kernel32
+    k.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    snap = k.CreateToolhelp32Snapshot(2, 0)  # TH32CS_SNAPPROCESS
+    entry = PROCESSENTRY32W(dwSize=ctypes.sizeof(PROCESSENTRY32W))
+    found = False
+    try:
+        ok = k.Process32FirstW(ctypes.c_void_p(snap), ctypes.byref(entry))
+        while ok and not found:
+            found = entry.szExeFile.lower() == "hwinfo64.exe"
+            ok = k.Process32NextW(ctypes.c_void_p(snap), ctypes.byref(entry))
+    finally:
+        k.CloseHandle(ctypes.c_void_p(snap))
+    return found
 
 
 def safe_name(name):
@@ -103,7 +124,7 @@ def backup_hwinfo(name=""):
     with tempfile.TemporaryDirectory() as tmp:
         raw = Path(tmp) / "all.reg"
         subprocess.run(["reg", "export", HWINFO_REG, str(raw), "/y"], check=True,
-                       capture_output=True)
+                       capture_output=True, creationflags=HIDDEN)
         text = raw.read_text(encoding="utf-16")
 
     # Leave out the VSB section: that's HWiNFO's live readings, not settings.
@@ -146,8 +167,8 @@ def restore_hwinfo(folder=None):
 
     backup_hwinfo(f"Before restoring {folder.name.partition(' - ')[2]}")
     # Clear the sensor settings first so the result is exactly the backup, not a mix.
-    subprocess.run(["reg", "delete", HWINFO_REG + r"\Sensors", "/f"], capture_output=True)
-    subprocess.run(["reg", "import", str(folder / "hwinfo-settings.reg")], check=True, capture_output=True)
+    subprocess.run(["reg", "delete", HWINFO_REG + r"\Sensors", "/f"], capture_output=True, creationflags=HIDDEN)
+    subprocess.run(["reg", "import", str(folder / "hwinfo-settings.reg")], check=True, capture_output=True, creationflags=HIDDEN)
     print(f"Restored HWiNFO settings from {folder.name}.")
     ini = folder / "HWiNFO64.INI"
     if ini.exists() and not write_hwinfo_ini(ini.read_text(encoding="ascii", errors="ignore")):
@@ -165,7 +186,7 @@ def delete_backup(folder):
     subprocess.run(["powershell", "-NoProfile", "-Command",
                     "Add-Type -AssemblyName Microsoft.VisualBasic;"
                     "[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory("
-                    f"'{path}','OnlyErrorDialogs','SendToRecycleBin')"], check=True, capture_output=True)
+                    f"'{path}','OnlyErrorDialogs','SendToRecycleBin')"], check=True, capture_output=True, creationflags=HIDDEN)
     print(f"Moved {folder} to the Recycle Bin.")
     return 0
 
@@ -204,7 +225,7 @@ def write_hwinfo_ini(text):
         r = subprocess.run(["powershell", "-NoProfile", "-Command",
                             f"Start-Process -Wait -Verb RunAs -WindowStyle Hidden powershell "
                             f"-ArgumentList '-NoProfile','-Command','Copy-Item -Force \"{t.name}\" \"{HWINFO_INI}\"'"],
-                           capture_output=True)
+                           capture_output=True, creationflags=HIDDEN)
         Path(t.name).unlink(missing_ok=True)
         return r.returncode == 0
 

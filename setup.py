@@ -32,7 +32,7 @@ draft = None  # unsaved dials from the editor, used by the live preview
 
 def powershell(script):
     return subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, creationflags=tools.HIDDEN)
 
 
 def captured(fn):
@@ -162,7 +162,7 @@ def start_hwinfo():
 
 def install_deps():
     r = subprocess.run([sys.executable, "-m", "pip", "install", "pywebview"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, creationflags=tools.HIDDEN)
     last = (r.stdout.strip().splitlines() or [""])[-1]
     return {"ok": r.returncode == 0, "message": last if r.returncode == 0 else r.stderr.strip()[-500:]}
 
