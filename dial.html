@@ -222,6 +222,17 @@ menu.addEventListener("click", async e => {
   else if (act) pywebview.api[act]();
 });
 window.addEventListener("pywebviewready", async () => setLocked(await pywebview.api.is_locked(i)));
+// Tell the app when you drag, so it saves only moves you make yourself.
+let dragging = false;
+svg.addEventListener("mousedown", e => {
+  if (e.button === 0 && svg.classList.contains("pywebview-drag-region")) {
+    dragging = true;
+    pywebview.api.dragging(i, true);
+  }
+});
+window.addEventListener("mouseup", () => {
+  if (dragging) { dragging = false; pywebview.api.dragging(i, false); }
+});
 
 (async () => {
   dial = (await (await fetch("/dials.json")).json())[i];
