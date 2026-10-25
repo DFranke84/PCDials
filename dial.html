@@ -65,10 +65,11 @@ function el(tag, attrs, text) {
 const colour = (f, spec) => `hsl(${120 * (spec.invert ? f : 1 - f)}, 100%, 45%)`;
 
 // Match by HWiNFO label (+ optional "source" text). If several match, prefer the one
-// whose HWiNFO unit equals the first word of our unit (e.g. "CPU" fan RPM vs "CPU" °C).
+// whose HWiNFO unit equals "hwunit" (set when converting, e.g. MB shown as GB),
+// else the first word of our unit (e.g. "CPU" fan RPM vs "CPU" °C).
 function find(readings, spec) {
   const hits = readings.filter(r => r.label === spec.label && (!spec.source || r.sensor.includes(spec.source)));
-  const unit = (spec.unit ?? "").trim().split(" ")[0];
+  const unit = spec.hwunit ?? (spec.unit ?? "").trim().split(" ")[0];
   return hits.find(r => unit && r.text.endsWith(" " + unit)) ?? hits[0];
 }
 // value after applying the optional "scale" (e.g. MB -> GB)

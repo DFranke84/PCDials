@@ -210,7 +210,7 @@ async function loadReadings() {
 // same matching rule as the dials
 function find(spec) {
   const hits = readings.filter(r => r.label === spec.label && (!spec.source || r.sensor.includes(spec.source)));
-  const unit = (spec.unit ?? "").trim().split(" ")[0];
+  const unit = spec.hwunit ?? (spec.unit ?? "").trim().split(" ")[0];
   return hits.find(r => unit && r.text.endsWith(" " + unit)) ?? hits[0];
 }
 
@@ -255,8 +255,10 @@ function valueEditor(spec, kind, onRemove) {
     spec.label = r.label;
     // add a source only when the label isn't unique
     const same = readings.filter(x => x.label === r.label);
-    if (same.length > 1) spec.source = r.sensor; else delete spec.source;
     const u = r.text.split(" ").slice(1).join(" ");
+    if (same.length > 1) spec.source = r.sensor; else delete spec.source;
+    // remember HWiNFO's unit when the name is shared, so a converted unit (MB→GB) still finds it
+    if (same.length > 1 && u) spec.hwunit = u; else delete spec.hwunit;
     if (!spec.unit && u) spec.unit = (u.startsWith("°") || u === "%") ? u : " " + u;
     changed(); showLive();
   };
