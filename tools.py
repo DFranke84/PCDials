@@ -28,7 +28,7 @@ def find(readings, spec):
     """Same matching rule as dial.html: label (+ source), prefer the matching unit."""
     hits = [r for r in readings
             if r["label"] == spec["label"] and spec.get("source", "") in r["sensor"]]
-    unit = (spec.get("unit") or "").strip().split(" ")[0]
+    unit = spec.get("hwunit") or (spec.get("unit") or "").strip().split(" ")[0]
     for r in hits:
         if unit and r["text"].endswith(" " + unit):
             return r
