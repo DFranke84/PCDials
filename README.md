@@ -92,6 +92,10 @@ back. If you get rid of a monitor, use **Move missing dials to main monitor** in
 
 ## Using the dials
 
+- **Tray icon:** the dials have no taskbar button; they live in the system tray (a small
+  green gauge icon; it may be under the **^** arrow). Right-click it for **Open PCDials
+  Setup**, **Lock all / Unlock all dials**, **Reload**, **Restart**, **Close dials**.
+  Double-click it to open Setup.
 - **Move:** drag a dial. The position is saved automatically.
 - **Right-click menu:** Lock/Unlock position, Size (Small/Medium/Large), Reload all dials,
   Restart, Close all dials.

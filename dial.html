@@ -217,7 +217,13 @@ document.addEventListener("mousedown", e => { if (!menu.contains(e.target)) menu
 menu.addEventListener("click", async e => {
   const act = e.target.dataset.act;
   menu.hidden = true;
-  if (e.target.dataset.size) pywebview.api.set_size(i, Number(e.target.dataset.size));
+  if (e.target.dataset.size) {
+    const size = Number(e.target.dataset.size);
+    await pywebview.api.set_size(i, size);  // resizes the window
+    const q = new URLSearchParams(location.search);
+    q.set("size", size);
+    location.search = q;  // redraw at the new size
+  }
   else if (act === "lock") setLocked(await pywebview.api.toggle_lock(i));
   else if (act) pywebview.api[act]();
 });
