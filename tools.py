@@ -44,6 +44,16 @@ def all_specs(dial):
             yield f"row {n}", spec
 
 
+def missing_values(readings, dials):
+    """Dial values HWiNFO isn't sharing, with close-matching label suggestions."""
+    labels = sorted({r["label"] for r in readings})
+    return [{"dial": dial["title"], "where": where, "label": spec["label"],
+             "source": spec.get("source", ""),
+             "suggest": difflib.get_close_matches(spec["label"], labels, n=3, cutoff=0.5)}
+            for dial in dials for where, spec in all_specs(dial)
+            if not find(readings, spec)]
+
+
 def check():
     readings = read_hwinfo()
     if not readings:
@@ -52,23 +62,17 @@ def check():
         print("  - Sensors > Settings > HWiNFO Gadget tab > tick 'Enable reporting to Gadget'.")
         return 1
 
-    labels = sorted({r["label"] for r in readings})
-    missing = 0
-    for dial in json.loads(DIALS_FILE.read_text(encoding="utf-8")):
-        for where, spec in all_specs(dial):
-            if find(readings, spec):
-                continue
-            missing += 1
-            src = f' (source "{spec["source"]}")' if spec.get("source") else ""
-            print(f'{dial["title"]} / {where}: "{spec["label"]}"{src} not found')
-            close = difflib.get_close_matches(spec["label"], labels, n=3, cutoff=0.5)
-            if close:
-                print(f"    did you mean: {', '.join(close)}")
-            else:
-                print("    tick it in HWiNFO: Sensors > Settings > HWiNFO Gadget > 'Report value in Gadget'")
+    missing = missing_values(readings, json.loads(DIALS_FILE.read_text(encoding="utf-8")))
+    for m in missing:
+        src = f' (source "{m["source"]}")' if m["source"] else ""
+        print(f'{m["dial"]} / {m["where"]}: "{m["label"]}"{src} not found')
+        if m["suggest"]:
+            print(f"    did you mean: {', '.join(m['suggest'])}")
+        else:
+            print("    tick it in HWiNFO: Sensors > Settings > HWiNFO Gadget > 'Report value in Gadget'")
 
     if missing:
-        print(f"\n{missing} value(s) not found. Fix the label in dials.json or tick the sensor in HWiNFO.")
+        print(f"\n{len(missing)} value(s) not found. Fix the label in dials.json or tick the sensor in HWiNFO.")
         return 1
     print(f"All dial values found ({len(readings)} readings shared by HWiNFO).")
     return 0
@@ -99,10 +103,14 @@ def export_hwinfo():
     return 0
 
 
+def hwinfo_running():
+    out = subprocess.run(["tasklist", "/fi", "imagename eq HWiNFO64.exe"],
+                         capture_output=True, text=True).stdout
+    return "hwinfo64.exe" in out.lower()  # Windows may list it as HWiNFO64.EXE
+
+
 def import_hwinfo():
-    running = subprocess.run(["tasklist", "/fi", "imagename eq HWiNFO64.exe"],
-                             capture_output=True, text=True).stdout
-    if "HWiNFO64.exe" in running:
+    if hwinfo_running():
         print("Close HWiNFO64 first (it saves its own settings on exit and would undo the import).")
         return 1
     if not REG_FILE.exists():

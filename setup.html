@@ -1,0 +1,379 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PCDials Setup</title>
+<style>
+  :root { --bg: #1b1e23; --panel: #23272e; --line: #353b45; --text: #dde1e7; --dim: #8a919c;
+          --ok: #4cc95b; --bad: #ff5a4f; --warn: #ffc933; --accent: #4c9bff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 24px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  .tabs button { background: none; border: none; color: var(--dim); font: inherit; padding: 6px 10px; cursor: pointer;
+                 border-bottom: 2px solid transparent; }
+  .tabs button.on { color: var(--text); border-color: var(--accent); }
+  main { padding: 20px; }
+  button.btn { background: #303640; color: var(--text); border: 1px solid #454c58; border-radius: 6px;
+               padding: 6px 12px; font: inherit; cursor: pointer; white-space: nowrap; }
+  button.btn:hover { background: #3a414d; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  #msg { position: fixed; bottom: 16px; right: 16px; max-width: 480px; padding: 10px 14px; border-radius: 8px;
+         background: var(--panel); border: 1px solid var(--line); white-space: pre-wrap; display: none; }
+  #msg.bad { border-color: var(--bad); }
+
+  /* Setup tab */
+  .status { display: grid; grid-template-columns: 22px minmax(180px, 1fr) minmax(0, auto); gap: 10px 12px; align-items: center;
+            max-width: 820px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bad); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
+  .status small { color: var(--dim); display: block; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+  @media (max-width: 760px) {
+    .status { grid-template-columns: 22px 1fr; }
+    .actions { grid-column: 2; justify-content: flex-start; }
+    .actions:empty { display: none; }
+  }
+  h2 { font-size: 15px; margin: 24px 0 10px; font-weight: 600; }
+  .missing { max-width: 820px; color: var(--dim); }
+  .missing li { margin: 4px 0; }
+
+  /* Dials tab */
+  .editor { display: grid; grid-template-columns: 190px 1fr 300px; gap: 18px; align-items: start; }
+  .list button { display: block; width: 100%; text-align: left; margin-bottom: 4px; }
+  .list button.on { border-color: var(--accent); }
+  .form { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .form h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--dim); margin: 16px 0 6px; }
+  .form h3:first-child { margin-top: 0; }
+  .row-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  label.f { display: flex; flex-direction: column; font-size: 11px; color: var(--dim); gap: 2px; }
+  input, select { background: #15181c; color: var(--text); border: 1px solid #3a404a; border-radius: 5px;
+                  padding: 4px 6px; font: 13px "Segoe UI", sans-serif; }
+  input[type=number] { width: 70px; }
+  input.w-name { width: 80px; } input.w-unit { width: 64px; }
+  label.c { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); }
+  .value { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; background: #1f2329; }
+  .value .pick { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+  .value .pick select { flex: 1; min-width: 0; }
+  .live { color: var(--ok); font-size: 12px; white-space: nowrap; }
+  .live.none { color: var(--bad); }
+  .rowbox { border-left: 3px solid var(--line); padding-left: 10px; margin-bottom: 10px; }
+  .rowbox .head { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; margin-bottom: 4px; }
+  .preview { position: sticky; top: 16px; text-align: center; }
+  .preview iframe { width: 300px; height: 300px; border: 0; border-radius: 10px; background: #2b2f36; }
+  .savebar { display: flex; gap: 8px; justify-content: center; margin-top: 10px; }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 8px; }
+  /* narrow window: everything in one column, preview first */
+  @media (max-width: 1000px) {
+    .editor { grid-template-columns: 1fr; }
+    .preview { position: static; order: -1; }
+    #dial-list { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+    .list button { display: inline-block; width: auto; margin: 0; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>PCDials Setup</h1>
+  <nav class="tabs">
+    <button data-tab="setup" class="on">Setup</button>
+    <button data-tab="dials">Dials</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-setup">
+    <div class="status" id="status">Checking…</div>
+    <h2>Dial values not found in HWiNFO</h2>
+    <div class="missing" id="missing"></div>
+  </section>
+
+  <section id="tab-dials" hidden>
+    <div class="editor">
+      <div class="list">
+        <div id="dial-list"></div>
+        <button class="btn small" id="add-dial">+ Add dial</button>
+      </div>
+      <div class="form" id="form"></div>
+      <div class="preview">
+        <iframe id="preview"></iframe>
+        <div class="savebar">
+          <button class="btn primary" id="save">Save</button>
+          <button class="btn" id="revert">Undo changes</button>
+        </div>
+        <div class="hint">The preview shows your changes right away.<br>
+          Save applies them to the desktop dials.</div>
+      </div>
+    </div>
+  </section>
+</main>
+<div id="msg"></div>
+
+<script>
+const $ = (sel, root = document) => root.querySelector(sel);
+const h = (tag, props = {}, ...kids) => {
+  const e = Object.assign(document.createElement(tag), props);
+  for (const k of kids.flat()) if (k != null && k !== false && k !== "") e.append(k);
+  return e;
+};
+const api = async (path, body) => {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", body: JSON.stringify(body) });
+  return r.json();
+};
+function toast(res) {
+  const m = $("#msg");
+  m.textContent = res.message || (res.ok ? "Done." : "Something went wrong.");
+  m.className = res.ok ? "" : "bad";
+  m.style.display = "block";
+  clearTimeout(toast.t);
+  toast.t = setTimeout(() => m.style.display = "none", 6000);
+}
+async function act(name, body) {
+  toast({ ok: true, message: "Working…" });
+  const res = await api("/api/" + name, body);
+  toast(res);
+  refreshStatus();
+  return res;
+}
+
+// ---------------------------------------------------------------- tabs
+document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+  document.querySelectorAll(".tabs button").forEach(x => x.classList.toggle("on", x === b));
+  $("#tab-setup").hidden = b.dataset.tab !== "setup";
+  $("#tab-dials").hidden = b.dataset.tab !== "dials";
+  if (b.dataset.tab === "dials") loadReadings();
+});
+
+// ---------------------------------------------------------------- Setup tab
+async function refreshStatus() {
+  const s = await api("/api/status");
+  const line = (state, title, detail, ...buttons) => [
+    h("div", { className: "dot " + state }),
+    h("div", {}, title, h("small", {}, detail)),
+    h("div", { className: "actions" }, buttons),
+  ];
+  const btn = (text, fn, primary) => h("button", { className: "btn" + (primary ? " primary" : ""), textContent: text, onclick: fn });
+  const date = t => new Date(t * 1000).toLocaleString();
+
+  $("#status").replaceChildren(...[
+    line(s.pywebview ? "ok" : "", `Python ${s.python} + pywebview`,
+      s.pywebview ? "Installed." : "pywebview is needed to show the dials.",
+      !s.pywebview && btn("Install", () => act("install_deps"), true)),
+    line(s.hwinfo ? "ok" : "", "HWiNFO64 running",
+      s.hwinfo ? "Running." : "Start HWiNFO64 (Sensors-only mode)."),
+    line(s.sharing ? "ok" : "", "HWiNFO sharing values (Gadget reporting)",
+      s.sharing ? `${s.sharing} readings shared.`
+                : "HWiNFO: Sensors → Settings → HWiNFO Gadget → tick “Enable reporting to Gadget”.",
+      btn("Import saved HWiNFO settings", () => act("import_hwinfo"))),
+    line(s.profile ? "ok" : "warn", "Saved HWiNFO settings",
+      s.profile ? `Saved ${date(s.profile)}. Restores this PC's HWiNFO setup (close HWiNFO before importing).`
+                : "Not saved yet.",
+      btn("Save current HWiNFO settings", () => act("export_hwinfo"))),
+    line(s.missing.length ? "warn" : (s.sharing ? "ok" : ""), "All dial values found",
+      s.missing.length ? `${s.missing.length} value(s) missing (see below).` : (s.sharing ? "Everything matches." : "Waiting for HWiNFO.")),
+    line(s.dials ? "ok" : "warn", "Dials running",
+      s.dials ? "On your desktop." : "Not running.",
+      s.dials ? btn("Stop", () => act("stop_dials")) : btn("Start", () => act("start_dials"), true)),
+    line(s.startup ? "ok" : "warn", "Start dials when I log in",
+      s.startup ? "On (shortcut in your Startup folder)." : "Off.",
+      s.startup ? btn("Turn off", () => act("startup_off")) : btn("Turn on", () => act("startup_on"), true)),
+    line("ok", "Dial positions",
+      "Dials on a monitor that's off stay hidden until it's back. Use these if a monitor is gone for good.",
+      btn("Move missing dials to main monitor", () => act("move_to_main", { all: false })),
+      btn("Move all", () => act("move_to_main", { all: true }))),
+  ].flat());
+
+  $("#missing").replaceChildren(s.missing.length
+    ? h("ul", {}, s.missing.map(m => h("li", {},
+        `${m.dial} / ${m.where}: “${m.label}”${m.source ? ` (${m.source})` : ""} `,
+        m.suggest.length ? `— did you mean: ${m.suggest.join(", ")}?` : "— tick it in HWiNFO's Gadget tab.")))
+    : h("p", {}, s.sharing ? "None. Every dial value was found." : "HWiNFO isn't sharing values yet."));
+}
+refreshStatus();
+setInterval(() => { if (!$("#tab-setup").hidden) refreshStatus(); }, 5000);
+
+// ---------------------------------------------------------------- Dials tab
+let dials = [], saved = "[]", current = 0, readings = [];
+
+async function loadDials() {
+  dials = await (await fetch("/dials.json?saved")).json();
+  saved = JSON.stringify(dials);
+  $("#save").textContent = "Save";
+  renderList(); renderForm(); pushDraft();
+}
+async function loadReadings() {
+  readings = await api("/api/readings");
+  renderForm();
+}
+
+// same matching rule as the dials
+function find(spec) {
+  const hits = readings.filter(r => r.label === spec.label && (!spec.source || r.sensor.includes(spec.source)));
+  const unit = (spec.unit ?? "").trim().split(" ")[0];
+  return hits.find(r => unit && r.text.endsWith(" " + unit)) ?? hits[0];
+}
+
+let draftTimer;
+function changed() {
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(pushDraft, 250);
+  $("#save").textContent = JSON.stringify(dials) === saved ? "Save" : "Save •";
+}
+async function pushDraft() {
+  await api("/api/draft", dials);
+  $("#preview").src = `dial.html?i=${current}&preview&t=${Date.now()}`;
+}
+
+function renderList() {
+  $("#dial-list").replaceChildren(...dials.map((d, i) =>
+    h("button", { className: "btn" + (i === current ? " on" : ""), textContent: d.title || "(untitled)",
+                  onclick: () => { current = i; renderList(); renderForm(); pushDraft(); } })));
+}
+
+const SCALES = { "": "as is", "0.0009765625": "MB → GB", "0.001": "MHz → GHz / ÷1000" };
+
+// One value (a reading): picker + display settings. kind: "arc", "big" or "row".
+function valueEditor(spec, kind, onRemove) {
+  const live = h("span", { className: "live" });
+  const showLive = () => {
+    const r = find(spec);
+    live.textContent = r ? `now ${r.text}` : "not found";
+    live.className = "live" + (r ? "" : " none");
+  };
+
+  // reading picker, grouped by HWiNFO sensor
+  const groups = {};
+  readings.forEach((r, n) => (groups[r.sensor] ??= []).push([r, n]));
+  const pick = h("select", {},
+    h("option", { value: "", textContent: spec.label ? `${spec.label}${spec.source ? "  [" + spec.source + "]" : ""}` : "— choose a reading —" }),
+    Object.entries(groups).map(([sensor, list]) => h("optgroup", { label: sensor },
+      list.map(([r, n]) => h("option", { value: n, textContent: `${r.label} = ${r.text}` })))));
+  pick.onchange = () => {
+    const r = readings[pick.value];
+    if (!r) return;
+    spec.label = r.label;
+    // add a source only when the label isn't unique
+    const same = readings.filter(x => x.label === r.label);
+    if (same.length > 1) spec.source = r.sensor; else delete spec.source;
+    const u = r.text.split(" ").slice(1).join(" ");
+    if (!spec.unit && u) spec.unit = (u.startsWith("°") || u === "%") ? u : " " + u;
+    changed(); showLive();
+  };
+
+  const field = (key, label, type = "text", cls = "") => {
+    const inp = h("input", { type, className: cls, value: spec[key] ?? "" });
+    if (type === "number") inp.step = "any";
+    inp.oninput = () => {
+      const v = type === "number" ? (inp.value === "" ? undefined : Number(inp.value)) : inp.value;
+      if (v === undefined || v === "") delete spec[key]; else spec[key] = v;
+      changed(); showLive();
+    };
+    return h("label", { className: "f" }, label, inp);
+  };
+  const check = (key, label) => {
+    const inp = h("input", { type: "checkbox", checked: !!spec[key] });
+    inp.onchange = () => { if (inp.checked) spec[key] = true; else delete spec[key]; changed(); };
+    return h("label", { className: "c" }, inp, label);
+  };
+  const scale = h("select", {}, Object.entries(SCALES).map(([v, t]) =>
+    h("option", { value: v, textContent: t, selected: String(spec.scale ?? "") === v })));
+  scale.onchange = () => { if (scale.value) spec.scale = Number(scale.value); else delete spec.scale; changed(); };
+
+  showLive();
+  return h("div", { className: "value" },
+    h("div", { className: "pick" }, pick, live,
+      onRemove && h("button", { className: "btn small", textContent: "✕", title: "Remove", onclick: onRemove })),
+    h("div", { className: "row-line" },
+      kind === "row" && field("name", "Name", "text", "w-name"),
+      field("unit", "Unit", "text", "w-unit"),
+      field("decimals", "Decimals", "number"),
+      h("label", { className: "f" }, "Convert", scale),
+      kind !== "row" && field("min", "Min", "number"),
+      kind !== "row" && field("max", "Max", "number"),
+      field("warn", "Yellow at", "number"),
+      field("danger", "Red at", "number"),
+      kind === "arc" && check("invert", "High is good (green)"),
+      kind !== "row" && check("showPercent", "Show %")));
+}
+
+function renderForm() {
+  const d = dials[current];
+  if (!d) return $("#form").replaceChildren();
+  const top = (key, label, type = "text") => {
+    const inp = h("input", { type, value: d[key] ?? "" });
+    inp.oninput = () => {
+      d[key] = type === "number" ? Number(inp.value) : inp.value;
+      changed(); if (key === "title") renderList();
+    };
+    return h("label", { className: "f" }, label, inp);
+  };
+
+  // optional parts (main line, extra) can be switched on/off
+  const optional = (key, label, kind, defaults) => {
+    const box = h("div");
+    const on = h("input", { type: "checkbox", checked: !!d[key] });
+    const draw = () => box.replaceChildren(d[key] ? valueEditor(d[key], kind) : "");
+    on.onchange = () => { if (on.checked) d[key] = { ...defaults }; else delete d[key]; draw(); changed(); };
+    draw();
+    return [h("h3", {}, h("label", { className: "c" }, on, label)), box];
+  };
+
+  const rows = h("div");
+  const drawRows = () => rows.replaceChildren(...(d.rows ??= []).map((row, n) =>
+    h("div", { className: "rowbox" },
+      h("div", { className: "head" }, `Row ${n + 1}`,
+        h("span", {},
+          row.length < 2 && h("button", { className: "btn small", textContent: "+ value",
+            onclick: () => { row.push({ label: "" }); drawRows(); changed(); } }), " ",
+          h("button", { className: "btn small", textContent: "Remove row",
+            onclick: () => { d.rows.splice(n, 1); drawRows(); changed(); } }))),
+      row.map((spec, k) => valueEditor(spec, "row", () => {
+        row.splice(k, 1); if (!row.length) d.rows.splice(n, 1); drawRows(); changed();
+      })))));
+  drawRows();
+
+  const ignore = h("input", { value: (d.ignoreApps || []).join(", "), style: "width:100%" });
+  ignore.oninput = () => {
+    const list = ignore.value.split(",").map(s => s.trim()).filter(Boolean);
+    if (list.length) d.ignoreApps = list; else delete d.ignoreApps;
+    changed();
+  };
+  const showApp = h("input", { type: "checkbox", checked: !!d.showApp });
+  showApp.onchange = () => { if (showApp.checked) d.showApp = true; else delete d.showApp; changed(); };
+
+  $("#form").replaceChildren(
+    h("h3", {}, "Dial"),
+    h("div", { className: "row-line" }, top("title", "Title"), top("size", "Default size (px)", "number"),
+      h("button", { className: "btn small", textContent: "Delete this dial", onclick: () => {
+        if (!confirm(`Delete the “${d.title}” dial?`)) return;
+        dials.splice(current, 1); current = Math.max(0, current - 1); renderList(); renderForm(); changed();
+      } })),
+    h("h3", {}, "Left arc"), valueEditor(d.left ??= { label: "", min: 0, max: 100 }, "arc"),
+    h("h3", {}, "Right arc"), valueEditor(d.right ??= { label: "", min: 0, max: 100 }, "arc"),
+    ...optional("big", "Main line shows its own reading (otherwise the left arc's)", "big", { label: "" }),
+    ...optional("bigExtra", "Second reading on the main line", "big", { label: "" }),
+    h("h3", {}, "Rows"), rows,
+    h("button", { className: "btn small", textContent: "+ Add row",
+      onclick: () => { d.rows.push([{ label: "" }]); drawRows(); changed(); } }),
+    h("h3", {}, "FPS options"),
+    h("label", { className: "f" }, "Ignore these programs (comma separated)", ignore),
+    h("label", { className: "c", style: "margin-top:6px" }, showApp, "Show the measured program's name in the title"),
+  );
+}
+
+$("#add-dial").onclick = () => {
+  dials.push({ title: "New dial", size: 330,
+               left: { label: "", min: 0, max: 100 }, right: { label: "", min: 0, max: 100 }, rows: [] });
+  current = dials.length - 1; renderList(); renderForm(); changed();
+};
+$("#save").onclick = async () => {
+  const res = await act("save", dials);
+  if (res.ok) { saved = JSON.stringify(dials); $("#save").textContent = "Save"; }
+};
+$("#revert").onclick = () => { if (confirm("Undo all unsaved changes?")) loadDials(); };
+
+loadDials();
+</script>
+</body>
+</html>

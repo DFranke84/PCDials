@@ -3,6 +3,30 @@
 Desktop dials (FPS, motherboard, CPU, GPU) that read live values from HWiNFO64.
 Each dial is its own small see-through widget: drag it anywhere, right-click for options.
 
+## PCDials Setup (the easy way)
+
+```
+python setup.py
+```
+
+Opens the **PCDials Setup** window:
+
+- **Setup tab:** shows what's working (Python + pywebview, HWiNFO running and sharing
+  values, saved HWiNFO settings, all dial values found, dials running, start at login),
+  with a button to fix or change each one. Also **Move missing dials to main monitor**
+  and **Move all**, for when a monitor is gone for good.
+- **Dials tab:** edit every dial. Pick readings from a list of what HWiNFO is sharing
+  right now (with live values), set units, ranges, yellow/red limits, rows; add or delete
+  dials. The preview updates as you type; **Save** writes `dials.json` and the running
+  dials update by themselves within a couple of seconds.
+
+## Multiple monitors
+
+Dial positions are saved in real screen pixels, so they come back in the same place on
+any monitor, whatever its scaling. If a dial's monitor is off or unplugged, that dial
+stays hidden (it isn't moved), and shows up again in the same spot when the monitor is
+back. If you get rid of a monitor, use **Move missing dials to main monitor** in Setup.
+
 ## Files
 
 | File | What it is |
@@ -12,6 +36,7 @@ Each dial is its own small see-through widget: drag it anywhere, right-click for
 | `helper.py` | The app: reads HWiNFO, opens one window per dial |
 | `dial.html` | How a dial is drawn (shared by all dials) |
 | `tools.py` | `check`, `export-hwinfo`, `import-hwinfo` (see below) |
+| `setup.py`, `setup.html` | The PCDials Setup window |
 | `hwinfo-profile\` | Saved copy of your HWiNFO settings |
 
 ## Using the dials
@@ -19,8 +44,8 @@ Each dial is its own small see-through widget: drag it anywhere, right-click for
 - **Move:** drag a dial. The position is saved automatically.
 - **Right-click menu:** Lock/Unlock position, Size (Small/Medium/Large), Reload all dials,
   Restart, Close all dials.
-- **After editing `dials.json`:** right-click → **Reload all dials**.
-  If you added or removed a whole dial, use **Restart**.
+- **After editing `dials.json`:** the dials pick up the change by themselves within a
+  couple of seconds (adding or removing a whole dial restarts them).
 - **Colours:** arcs go green → yellow → red as they fill (reversed for FPS and GPU load,
   where high is good). Values turn **yellow** near a limit and **bold red** past it.
 
